@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Hints for Phase 2 demo: two laptops on LAN (not localhost)."""
-
 import argparse
 import socket
 import subprocess
@@ -19,20 +17,18 @@ def guess_lan_ip():
 
 
 def main():
-    p = argparse.ArgumentParser(description="Print LAN IP and demo commands.")
-    p.add_argument("--port", type=int, default=6000, help="Tracker port (match sconfig.cfg)")
+    p = argparse.ArgumentParser()
+    p.add_argument("--port", type=int, default=6000)
     args = p.parse_args()
     ip = guess_lan_ip()
-    print("Suggested LAN IP (UDP route trick):", ip)
-    print("On SERVER laptop: bind tracker to 0.0.0.0 (tracker_server.py already uses '').")
-    print("On CLIENT laptop:  python3 client.py <SERVER_IP>", args.port)
-    print("Firewall: allow inbound TCP", args.port, "on the server.")
+    print("lan ip guess:", ip)
+    print("server: python3 tracker_server.py   client: python3 client.py", ip, args.port)
+    print("open tcp", args.port, "if firewall blocks")
     if sys.platform == "darwin":
-        print("macOS: System Settings → Network → Firewall, or `sudo /usr/libexec/ApplicationFirewall/socketfilterfw` …")
+        print("(mac firewall in system settings)")
     try:
         out = subprocess.check_output(["ifconfig"], text=True, stderr=subprocess.DEVNULL)
         if "inet " in out:
-            print("\n--- ifconfig (inet) ---")
             for line in out.splitlines():
                 if "inet " in line and "127.0.0.1" not in line:
                     print(line.strip())

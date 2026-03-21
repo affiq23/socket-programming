@@ -1,9 +1,10 @@
-# CS 4390 — P2P tracker and peer (Python)
+# socket-programming (CS4390)
 
-Tracker server (`tracker_server.py`), interactive client (`client.py`), combined peer (`peer.py` with chunk server + periodic updatetracker), and P2P transfer helpers (`rough_transfer.py`).
+tracker_server.py — tracker  
+client.py — menu to talk to tracker  
+peer.py — also runs the chunk listener + periodic updatetracker  
+rough_transfer.py — p2p download / serve-peer cli  
 
-- **Mid-term demo checklist, exact protocol strings, and two-laptop steps:** see [DEMO.md](DEMO.md).
-- **Quick local test (simulates two roles on one machine):** `./simulate_two_laptops.sh` or `make test`.
-- **Configs:** `sconfig.cfg` (tracker), `clientThreadConfig.cfg` and `serverThreadConfig.cfg` (peers). Copy from `*.cfg.example` files.
+configs: `sconfig.cfg`, copy `clientThreadConfig.cfg.example` and `serverThreadConfig.cfg.example`  
 
-External reference: [Beej's Guide to Network Programming](https://beej.us/guide/bgnet/) (sockets).
+see DEMO.md for the actual demo steps  

@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Local "two laptop" demo: tracker + seeder peer + leecher download (same host, two roles).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-# Random defaults avoid collisions with leftover local processes from earlier runs.
 TRACKER_PORT="${TRACKER_PORT:-$((6000 + RANDOM % 800))}"
 SEEDER_PORT="${SEEDER_PORT:-$((9000 + RANDOM % 800))}"
 PY="${PYTHON:-python3}"
@@ -43,7 +41,6 @@ wait_port() {
 
 mkdir -p "$TORRENTS" "$SEED_DIR" "$LEECH_CACHE" "$LEECH_DL"
 
-# ~1.5 chunks (1024-byte segments) so two P2P segment requests run
 dd if=/dev/urandom of="$TEST_FILE" bs=1536 count=1 2>/dev/null
 
 FILESIZE=$(wc -c <"$TEST_FILE" | tr -d ' ')
@@ -56,18 +53,13 @@ torrents_dir = $TORRENTS
 peer_timeout_seconds = 900
 EOF
 
-echo "=== Paths ==="
-echo "Work dir:     $WORK"
-echo "Tracker port: $TRACKER_PORT  |  Seeder (laptop A) peer port: $SEEDER_PORT"
-echo ""
+echo "work dir: $WORK  tracker=$TRACKER_PORT seeder=$SEEDER_PORT"
 
-echo "=== [Laptop A] starting peer chunk server (shares $TEST_FILE) ==="
 "$PY" "$ROOT/rough_transfer.py" serve-peer --ip 127.0.0.1 --port "$SEEDER_PORT" --shared-dir "$SEED_DIR" \
   >>"$WORK/peer.log" 2>&1 &
 PEER_PID=$!
 wait_port "$SEEDER_PORT" "peer" || exit 1
 
-echo "=== [Tracker] starting tracker server (cwd uses isolated sconfig) ==="
 (
   cd "$WORK"
   "$PY" "$ROOT/tracker_server.py" >>"$WORK/tracker.log" 2>&1
@@ -75,7 +67,6 @@ echo "=== [Tracker] starting tracker server (cwd uses isolated sconfig) ==="
 TRACKER_PID=$!
 wait_port "$TRACKER_PORT" "tracker" || exit 1
 if ! kill -0 "$TRACKER_PID" 2>/dev/null; then
-  echo "tracker process exited (often port already in use). Log:"
   cat "$WORK/tracker.log" 2>/dev/null || true
   exit 1
 fi
@@ -105,29 +96,19 @@ os.write(1, data)
 PY
 }
 
-echo "=== [Laptop A] createtracker (register file + this peer as seeder) ==="
 export TRACKER_PORT
 REPLY=$(send_tracker "<createtracker $FILENAME $FILESIZE simdemo $FILE_MD5 127.0.0.1 $SEEDER_PORT>")
-printf '%s' "$REPLY"
-echo ""
+printf '%s\n' "$REPLY"
 echo "$REPLY" | grep -q "createtracker succ" || { echo "createtracker failed"; exit 1; }
 
-echo ""
-echo "=== [Any] REQ LIST ==="
 REPLY=$(send_tracker "<REQ LIST>")
-printf '%s' "$REPLY"
-echo ""
+printf '%s\n' "$REPLY"
 
 LAST=$((FILESIZE - 1))
-echo ""
-echo "=== [Laptop A] updatetracker (peer range 0–$LAST) ==="
 REPLY=$(send_tracker "<updatetracker $FILENAME 0 $LAST 127.0.0.1 $SEEDER_PORT>")
-printf '%s' "$REPLY"
-echo ""
+printf '%s\n' "$REPLY"
 echo "$REPLY" | grep -q "updatetracker $FILENAME succ" || { echo "updatetracker failed"; exit 1; }
 
-echo ""
-echo "=== [Laptop B] GET tracker file + P2P download (separate dirs = separate machine) ==="
 "$PY" "$ROOT/rough_transfer.py" get-track-and-download \
   --tracker-ip 127.0.0.1 \
   --tracker-port "$TRACKER_PORT" \
@@ -136,17 +117,12 @@ echo "=== [Laptop B] GET tracker file + P2P download (separate dirs = separate m
   --downloads-dir "$LEECH_DL"
 
 OUT="$LEECH_DL/$FILENAME"
-echo ""
-echo "=== Verify downloaded file ==="
 if cmp -s "$TEST_FILE" "$OUT"; then
-  echo "OK: $OUT matches laptop A copy ($FILESIZE bytes, md5 $FILE_MD5)"
+  echo "cmp ok"
 else
-  echo "FAIL: bytes differ"
   exit 1
 fi
 
-echo ""
-echo "=== Optional: direct peer chunk GET (first 64 bytes) ==="
 "$PY" - <<PY
 import socket
 from rough_transfer import build_peer_chunk_get_request, recv_exact
@@ -158,7 +134,4 @@ sock.close()
 open("$WORK/direct_chunk.bin", "wb").write(data)
 PY
 cmp -s <(head -c 64 "$TEST_FILE") "$WORK/direct_chunk.bin"
-echo "OK: direct chunk matches first 64 bytes of seed file"
-
-echo ""
-echo "Done. (Logs: $WORK/tracker.log $WORK/peer.log)"
+echo "chunk ok"

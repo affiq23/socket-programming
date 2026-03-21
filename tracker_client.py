@@ -38,7 +38,6 @@ def _cfg_lines(path: Path) -> list[str]:
 
 
 def load_client_thread_config(path: str | Path = "clientThreadConfig.cfg"):
-    """First line: tracker port, second: tracker IP, third: updatetracker interval (seconds). Default 900 = 15 min."""
     p = Path(path)
     lines = _cfg_lines(p)
     if len(lines) < 3:
@@ -47,7 +46,6 @@ def load_client_thread_config(path: str | Path = "clientThreadConfig.cfg"):
 
 
 def load_server_thread_config(path: str | Path = "serverThreadConfig.cfg"):
-    """First line: listen port for incoming peer GET; second: shared folder path."""
     p = Path(path)
     lines = _cfg_lines(p)
     if len(lines) < 2:

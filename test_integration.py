@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Integration test: tracker_server + protocol (no second physical machine)."""
-
 import os
 import signal
 import socket

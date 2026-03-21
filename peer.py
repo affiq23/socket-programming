@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Peer: chunk server (incoming GET chunks) + tracker menu + periodic updatetracker."""
-
 from __future__ import annotations
 
 import os
@@ -63,14 +61,8 @@ def main() -> None:
         daemon=True,
     ).start()
 
-    print(
-        f"{peer_id}: listening for peer GET chunks on 0.0.0.0:{listen_port}, "
-        f"shared folder {shared.resolve()}"
-    )
-    print(
-        f"{peer_id}: tracker {track_ip}:{track_port}; updatetracker refresh every {refresh_sec}s "
-        f"(900 = 15 min per project spec; lower for testing)"
-    )
+    print(f"{peer_id}: chunk listen 0.0.0.0:{listen_port} shared={shared.resolve()}")
+    print(f"{peer_id}: tracker {track_ip}:{track_port} refresh {refresh_sec}s")
     run_interactive_menu(track_ip, track_port, peer_id)
 
 

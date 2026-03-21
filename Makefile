@@ -1,15 +1,9 @@
-# CS4390 P2P — Python project (no compile step; targets invoke python3).
 PYTHON ?= python3
 
-.PHONY: all tracker peer test demo-local clean
+.PHONY: all tracker peer client test demo-local clean
 
 all:
-	@echo "Targets:"
-	@echo "  make tracker    - run tracker_server.py (needs sconfig.cfg in cwd)"
-	@echo "  make peer       - run peer.py (needs clientThreadConfig.cfg + serverThreadConfig.cfg)"
-	@echo "  make client     - run client.py (tracker menu only)"
-	@echo "  make test       - integration test + local two-role simulation"
-	@echo "  make demo-local - same as ./simulate_two_laptops.sh"
+	@echo "make tracker | make peer | make client | make test"
 
 tracker:
 	$(PYTHON) tracker_server.py

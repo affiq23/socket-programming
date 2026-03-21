@@ -6,8 +6,6 @@ from rough_transfer import ProtocolError, parse_tracker_get_response
 
 from tracker_client import load_client_thread_config, recv_all
 
-BUFFER_SIZE = 4096
-
 
 def resolve_tracker_addr():
     if len(sys.argv) >= 3:
@@ -40,9 +38,9 @@ def cmd_createtracker(host, port, peer_id: str):
     sock = open_tracker(host, port)
     try:
         send_msg(sock, msg)
-        print(f"  → Sent : {msg}")
+        print(f"  -> sent: {msg}")
         reply = recv_all(sock).decode(errors="replace").strip()
-        print(f"  ← Reply: {reply}")
+        print(f"  <- {reply}")
         if peer_id and "succ" in reply:
             print(
                 f"{peer_id}: createtracker {filename} {filesize} {description} {md5} {ip} {port_in}"
@@ -62,9 +60,9 @@ def cmd_updatetracker(host, port, peer_id: str):
     sock = open_tracker(host, port)
     try:
         send_msg(sock, msg)
-        print(f"  → Sent : {msg}")
+        print(f"  -> sent: {msg}")
         reply = recv_all(sock).decode(errors="replace").strip()
-        print(f"  ← Reply: {reply}")
+        print(f"  <- {reply}")
         if peer_id and "succ" in reply:
             print(f"{peer_id}: updatetracker {filename} {start_bytes} {end_bytes} {ip} {port_in}")
     finally:
@@ -76,15 +74,15 @@ def cmd_list(host, port, peer_id: str):
     try:
         send_msg(sock, "<REQ LIST>")
         tag = f"{peer_id}: " if peer_id else ""
-        print(f"  {tag}→ Sent : <REQ LIST>")
+        print(f"  {tag}-> <REQ LIST>")
         raw = recv_all(sock).decode(errors="replace")
         lines = [ln.strip() for ln in raw.strip().splitlines() if ln.strip()]
         if not lines:
-            print("  ← (empty)")
+            print("  (empty)")
             return
         for ln in lines:
             if ln.startswith("<REP LIST") or ln == "<REP LIST END>":
-                print(f"  {tag}← {ln}")
+                print(f"  {tag}{ln}")
             else:
                 print(f"     {ln}")
     finally:
@@ -101,38 +99,30 @@ def cmd_get(host, port, peer_id: str):
     try:
         send_msg(sock, msg)
         tag = f"{peer_id}: " if peer_id else ""
-        print(f"  {tag}→ Sent : {msg}")
+        print(f"  {tag}-> {msg}")
         raw = recv_all(sock)
         if b"<REP GET BEGIN>" not in raw:
-            print(f"  ← {raw.decode(errors='replace').strip()}")
-            print("  [!] Unexpected response.")
+            print(f"  <- {raw.decode(errors='replace').strip()}")
+            print("  bad response")
             return
         payload = parse_tracker_get_response(raw)
         with open(save_as, "wb") as f:
             f.write(payload)
         if peer_id:
             print(f"{peer_id}: Get {track}")
-        print(f"  ✓ Saved '{save_as}' ({len(payload)} bytes)")
+        print(f"  saved {save_as} ({len(payload)} bytes)")
     except ProtocolError as e:
-        print(f"  [!] {e}")
+        print(f"  err: {e}")
     finally:
         sock.close()
 
 
 def run_interactive_menu(host: str, port: int, peer_id: str = "") -> None:
-    print(f"\n  One TCP connection per tracker command (server closes after reply).")
-    print(f"  Tracker: {host}:{port}\n")
+    print(f"\ntracker: {host}:{port} (new tcp connect per cmd)\n")
 
     MENU = """
-  ┌────────────────────────────────┐
-  │  Commands                      │
-  │  1  createtracker              │
-  │  2  updatetracker              │
-  │  3  LIST                       │
-  │  4  GET (download .track)      │
-  │  q  Quit                       │
-  └────────────────────────────────┘
-  > """
+  1 createtracker  2 updatetracker  3 LIST  4 GET  q quit
+> """
 
     try:
         while True:
@@ -146,12 +136,12 @@ def run_interactive_menu(host: str, port: int, peer_id: str = "") -> None:
             elif choice in ("4", "get"):
                 cmd_get(host, port, peer_id)
             elif choice in ("q", "quit", "exit"):
-                print("\n  Goodbye!\n")
+                print("bye")
                 break
             else:
-                print("  [!] Unknown command. Try 1–4 or q.")
+                print("?")
     except KeyboardInterrupt:
-        print("\n\n  Interrupted.")
+        print("\n^C")
 
 
 def main():

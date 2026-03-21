@@ -1,10 +1,3 @@
-"""
-tracker_server.py
-handles: createtracker, updatetracker, REQ LIST, GET <filename>.track
-each client connection is handed to a worker thread immediately
-config is read from sconfig.cfg (port, torrents directory)
-"""
-
 import configparser
 import hashlib
 import os
@@ -12,42 +5,27 @@ import socket
 import threading
 import time
 
-# reads config or falls back to defaults
 config = configparser.ConfigParser()
 config.read("sconfig.cfg")
 
 PORT = int(config.get("server", "port", fallback="5000"))
 TORRENTS_DIR = config.get("server", "torrents_dir", fallback="torrents")
-PEER_TIMEOUT = int(
-    config.get("server", "peer_timeout_seconds", fallback="900")
-)  # 15 min default
+PEER_TIMEOUT = int(config.get("server", "peer_timeout_seconds", fallback="900"))
 
 os.makedirs(TORRENTS_DIR, exist_ok=True)
-
-# lock so two threads never write the same .track file at the same time
 file_lock = threading.Lock()
 
 
-# helper functions
 def md5_of_string(data: str) -> str:
-    # return MD5 hex digest of a UTF-8 string
     return hashlib.md5(data.encode()).hexdigest()
 
 
 def track_path(filename: str) -> str:
-    # return full path to <filename>.track inside the torrents directory
-    # strip any .track suffix the caller may have included it doesn't double
     base = filename.replace(".track", "")
     return os.path.join(TORRENTS_DIR, base + ".track")
 
 
 def read_track_file(filepath: str):
-    # parse a .track file and return:
-    """ " (header_dict, peer_list)
-    header_dict keys: Filename, Filesize, Description, MD5
-    peer_list: list of dicts with keys ip, port, start, end, timestamp
-    returns (None, None) if file doesn't exist
-    """
     if not os.path.exists(filepath):
         return None, None
 
@@ -60,7 +38,6 @@ def read_track_file(filepath: str):
             if not line or line.startswith("#"):
                 continue
             if ":" in line and line[0].isdigit():
-                # peer line:  ip:port:start:end:timestamp
                 parts = line.split(":")
                 if len(parts) == 5:
                     peers.append(
@@ -85,7 +62,6 @@ def read_track_file(filepath: str):
 
 
 def write_track_file(filepath: str, header: dict, peers: list):
-    # write header + peer list back to the .track file
     with open(filepath, "w") as f:
         f.write(f"Filename: {header['Filename']}\n")
         f.write(f"Filesize: {header['Filesize']}\n")
@@ -97,16 +73,11 @@ def write_track_file(filepath: str, header: dict, peers: list):
 
 
 def purge_dead_peers(peers: list) -> list:
-    # remove peers whose timestamp is older than PEER_TIMEOUT seconds
     now = int(time.time())
     return [p for p in peers if (now - p["timestamp"]) <= PEER_TIMEOUT]
 
 
-# command handlers
 def handle_createtracker(parts: list) -> str:
-    # expected format: <createtracker filename filesize description md5 ip port>
-    # parts = ['createtracker', filename, filesize, description, md5, ip, port]
-
     if len(parts) != 7:
         print("[createtracker] Bad argument count")
         return "<createtracker fail>\n"
@@ -139,9 +110,6 @@ def handle_createtracker(parts: list) -> str:
 
 
 def handle_updatetracker(parts: list) -> str:
-    # expected format: <updatetracker filename start_bytes end_bytes ip port>
-    # parts = ['updatetracker', filename, start, end, ip, port]
-
     if len(parts) != 6:
         print("[updatetracker] Bad argument count")
         return f"<updatetracker {parts[1] if len(parts) > 1 else '?'} fail>\n"
@@ -155,10 +123,8 @@ def handle_updatetracker(parts: list) -> str:
             print(f"[updatetracker] Track file not found: {path}")
             return f"<updatetracker {filename} ferr>\n"
 
-        # purge dead peers first
         peers = purge_dead_peers(peers)
 
-        # find if this peer (ip:port) already has an entry
         now = int(time.time())
         found = False
         for p in peers:
@@ -181,14 +147,6 @@ def handle_updatetracker(parts: list) -> str:
 
 
 def handle_list() -> str:
-    # returns formatted list of all .track files in the torrents directory
-    """
-    Format:
-        <REP LIST X>
-        <1 filename filesize MD5>
-        ...
-        <REP LIST END>
-    """
     track_files = [f for f in os.listdir(TORRENTS_DIR) if f.endswith(".track")]
     count = len(track_files)
     response = f"<REP LIST {count}>\n"
@@ -208,9 +166,6 @@ def handle_list() -> str:
 
 
 def handle_get(parts: list) -> str:
-    # expected format: <GET filename.track>
-    # sends back the full tracker file content wrapped in protocol headers
-
     if len(parts) != 2:
         print("[GET] Bad argument count")
         return "<GET invalid>\n"
@@ -231,10 +186,7 @@ def handle_get(parts: list) -> str:
     return response
 
 
-# client handler
 def handle_client(conn, addr):
-    # reads one command from the client, dispatches it, sends the response, then closes the connection
-
     print(f"[+] Connection from {addr}")
     try:
         data = b""
@@ -243,14 +195,12 @@ def handle_client(conn, addr):
             if not chunk:
                 break
             data += chunk
-            # commands end with \n; stop reading once we have one
             if b"\n" in data:
                 break
 
         raw = data.decode(errors="ignore").strip()
         print(f"[>] Received: {raw}")
 
-        # strip <>
         if raw.startswith("<") and raw.endswith(">"):
             raw = raw[1:-1].strip()
 
@@ -284,7 +234,6 @@ def handle_client(conn, addr):
         print(f"[-] Closed connection from {addr}")
 
 
-# main: start listening
 def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -1,28 +1,9 @@
-"""Member 3 implementation for CS4390 P2P file transfer.
-
-This module focuses on:
-- requesting tracker files from the tracker server using GET
-- parsing .track files
-- serving file chunks to peers with a strict 1024-byte max
-- downloading file chunks from peers
-- multithreaded segmented download
-- simple resume support for incomplete downloads
-
-Recommended peer-to-peer chunk request format:
-    <GET filename start_byte end_byte>\n
-Tracker-server GET format (from project spec):
-    <GET filename.track>\n
-This code is intentionally modular so it can be imported into an existing peer/server
-project and wired into the existing socket accept() and command loop.
-"""
-
 from __future__ import annotations
 
 import hashlib
 import os
 import socket
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -33,7 +14,7 @@ DEFAULT_TIMEOUT = 5.0
 
 
 class ProtocolError(Exception):
-    """Raised when a message violates the expected project protocol."""
+    pass
 
 
 @dataclass(order=True)
@@ -73,18 +54,12 @@ class DownloadResult:
     error: str = ""
 
 
-# -----------------------------
-# Generic helpers
-# -----------------------------
-
 def ensure_parent_dir(path: os.PathLike | str) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
 
-
 def md5_bytes(data: bytes) -> str:
     return hashlib.md5(data).hexdigest()
-
 
 
 def md5_file(path: os.PathLike | str) -> str:
@@ -93,7 +68,6 @@ def md5_file(path: os.PathLike | str) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
 
 
 def send_all(sock: socket.socket, data: bytes) -> None:
@@ -105,7 +79,6 @@ def send_all(sock: socket.socket, data: bytes) -> None:
         total_sent += sent
 
 
-
 def recv_until_socket_close(sock: socket.socket) -> bytes:
     parts: List[bytes] = []
     while True:
@@ -114,7 +87,6 @@ def recv_until_socket_close(sock: socket.socket) -> bytes:
             break
         parts.append(chunk)
     return b"".join(parts)
-
 
 
 def recv_exact(sock: socket.socket, n: int) -> bytes:
@@ -131,17 +103,11 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
     return b"".join(parts)
 
 
-# -----------------------------
-# Tracker GET helpers
-# -----------------------------
-
 def build_tracker_get_request(track_filename: str) -> bytes:
-    # Spec (mid-term): <GET filename.track >\n — space before '>'
     name = track_filename.strip()
     if not name.endswith(".track"):
         name = f"{name}.track"
     return f"<GET {name} >\n".encode("utf-8")
-
 
 
 def tracker_get_response_bytes(track_file_path: os.PathLike | str) -> bytes:
@@ -151,18 +117,9 @@ def tracker_get_response_bytes(track_file_path: os.PathLike | str) -> bytes:
     return b"<REP GET BEGIN>\n" + payload + b"\n<REP GET END " + payload_md5.encode("ascii") + b">\n"
 
 
-
 def handle_tracker_get_request(sock: socket.socket, track_file_path: os.PathLike | str) -> None:
-    """Server-side response for tracker-server GET.
-
-    Sends:
-        <REP GET BEGIN>\n
-        <tracker_file_content>\n
-        <REP GET END FileMD5>\n
-    """
     response = tracker_get_response_bytes(track_file_path)
     send_all(sock, response)
-
 
 
 def parse_tracker_get_response(raw: bytes) -> bytes:
@@ -192,7 +149,6 @@ def parse_tracker_get_response(raw: bytes) -> bytes:
     return payload
 
 
-
 def request_tracker_file(
     tracker_ip: str,
     tracker_port: int,
@@ -200,7 +156,6 @@ def request_tracker_file(
     cache_dir: os.PathLike | str,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> Path:
-    """Downloads a .track file from the tracker server and saves it to cache_dir."""
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     out_path = cache_dir / track_filename
@@ -214,10 +169,6 @@ def request_tracker_file(
     out_path.write_bytes(payload)
     return out_path
 
-
-# -----------------------------
-# Tracker parsing
-# -----------------------------
 
 def parse_tracker_file(track_path: os.PathLike | str) -> TrackerInfo:
     lines = Path(track_path).read_text(encoding="utf-8").splitlines()
@@ -267,13 +218,8 @@ def parse_tracker_file(track_path: os.PathLike | str) -> TrackerInfo:
     )
 
 
-# -----------------------------
-# Peer-to-peer GET helpers
-# -----------------------------
-
 def build_peer_chunk_get_request(filename: str, start: int, end: int) -> bytes:
     return f"<GET {filename} {start} {end}>\n".encode("utf-8")
-
 
 
 def parse_peer_chunk_get_request(line: str) -> Tuple[str, int, int]:
@@ -281,7 +227,7 @@ def parse_peer_chunk_get_request(line: str) -> Tuple[str, int, int]:
     if not (line.startswith("<GET ") and line.endswith(">")):
         raise ProtocolError("peer GET request must look like <GET filename start end>")
 
-    inner = line[1:-1].strip()  # remove outer < >
+    inner = line[1:-1].strip()
     parts = inner.split()
     if len(parts) != 4 or parts[0].upper() != "GET":
         raise ProtocolError("peer GET request must contain command, filename, start, end")
@@ -290,7 +236,6 @@ def parse_peer_chunk_get_request(line: str) -> Tuple[str, int, int]:
     start = int(parts[2])
     end = int(parts[3])
     return filename, start, end
-
 
 
 def recv_line(sock: socket.socket, max_bytes: int = 4096) -> str:
@@ -305,7 +250,6 @@ def recv_line(sock: socket.socket, max_bytes: int = 4096) -> str:
     if not data:
         raise ConnectionError("socket closed before line received")
     return data.decode("utf-8", errors="replace")
-
 
 
 def serve_chunk_to_peer(
@@ -345,9 +289,7 @@ def serve_chunk_to_peer(
     send_all(sock, payload)
 
 
-
 def handle_peer_connection(sock: socket.socket, shared_dir: os.PathLike | str) -> None:
-    """Call this from the peer server thread after accept()."""
     try:
         line = recv_line(sock)
         filename, start, end = parse_peer_chunk_get_request(line)
@@ -355,7 +297,6 @@ def handle_peer_connection(sock: socket.socket, shared_dir: os.PathLike | str) -
         serve_chunk_to_peer(sock, shared_dir, filename, start, end)
     finally:
         sock.close()
-
 
 
 def request_chunk_from_peer(
@@ -385,10 +326,6 @@ def request_chunk_from_peer(
         return first + rest
 
 
-# -----------------------------
-# Download planner / resume helpers
-# -----------------------------
-
 def build_all_segments(filesize: int, segment_size: int = CHUNK_SIZE_LIMIT) -> List[Tuple[int, int]]:
     segments: List[Tuple[int, int]] = []
     start = 0
@@ -399,10 +336,8 @@ def build_all_segments(filesize: int, segment_size: int = CHUNK_SIZE_LIMIT) -> L
     return segments
 
 
-
 def record_path_for(downloads_dir: os.PathLike | str, filename: str) -> Path:
     return Path(downloads_dir) / f".{filename}.parts"
-
 
 
 def load_completed_segments(downloads_dir: os.PathLike | str, filename: str) -> set[Tuple[int, int]]:
@@ -419,7 +354,6 @@ def load_completed_segments(downloads_dir: os.PathLike | str, filename: str) -> 
     return completed
 
 
-
 def save_completed_segments(downloads_dir: os.PathLike | str, filename: str, completed: set[Tuple[int, int]]) -> None:
     path = record_path_for(downloads_dir, filename)
     ensure_parent_dir(path)
@@ -427,16 +361,13 @@ def save_completed_segments(downloads_dir: os.PathLike | str, filename: str, com
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
-
 def choose_peer_for_segment(segment: Tuple[int, int], peers: List[PeerEntry]) -> Optional[PeerEntry]:
     start, end = segment
     candidates = [peer for peer in peers if peer.covers(start, end)]
     if not candidates:
         return None
-    # Newest timestamp preferred by project description.
     candidates.sort(key=lambda p: p.timestamp, reverse=True)
     return candidates[0]
-
 
 
 def plan_chunk_jobs(tracker: TrackerInfo, completed: set[Tuple[int, int]]) -> List[ChunkJob]:
@@ -450,10 +381,6 @@ def plan_chunk_jobs(tracker: TrackerInfo, completed: set[Tuple[int, int]]) -> Li
         jobs.append(ChunkJob(start=segment[0], end=segment[1], peer=peer))
     return jobs
 
-
-# -----------------------------
-# Multithreaded downloader
-# -----------------------------
 
 def _download_worker(
     job: ChunkJob,
@@ -504,7 +431,7 @@ def _download_worker(
                 success=True,
             )
         )
-    except Exception as exc:  # pragma: no cover - kept broad for demo resilience
+    except Exception as exc:
         results.append(
             DownloadResult(
                 start=job.start,
@@ -516,22 +443,15 @@ def _download_worker(
         )
 
 
-
 def download_file_from_tracker_info(
     tracker: TrackerInfo,
     downloads_dir: os.PathLike | str,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> Tuple[Path, List[DownloadResult]]:
-    """Download/resume all missing 1024-byte segments for a file.
-
-    Returns the output file path and a list of per-segment results.
-    Raises ProtocolError if the final file is incomplete or the MD5 does not match.
-    """
     downloads_dir = Path(downloads_dir)
     downloads_dir.mkdir(parents=True, exist_ok=True)
     out_path = downloads_dir / tracker.filename
 
-    # Ensure file exists at target size so random-access writes work cleanly.
     if not out_path.exists():
         with open(out_path, "wb") as f:
             if tracker.filesize > 0:
@@ -572,7 +492,6 @@ def download_file_from_tracker_info(
             f"final file MD5 mismatch: expected {tracker.md5}, computed {actual_md5}"
         )
 
-    # Success: remove cached progress record.
     parts_record = record_path_for(downloads_dir, tracker.filename)
     if parts_record.exists():
         parts_record.unlink()
@@ -581,31 +500,7 @@ def download_file_from_tracker_info(
     return out_path, results
 
 
-# -----------------------------
-# Integration helpers / examples
-# -----------------------------
-
-def tracker_get_handler_for_existing_skeleton(sock_child: socket.socket, fname: str, tracker_dir: os.PathLike | str) -> None:
-    """Use this to replace/implement handle_get_req(...) in the tracker skeleton.
-
-    Example call from your existing tracker code:
-        handle_get_req(sock_child, fname)
-
-    Internally map fname to tracker_dir/fname and send the tracker response.
-    """
-    track_path = Path(tracker_dir) / fname
-    if not track_path.exists():
-        send_all(sock_child, b"<REP GET BEGIN>\n\n<REP GET END d41d8cd98f00b204e9800998ecf8427e>\n")
-        return
-    handle_tracker_get_request(sock_child, track_path)
-
-
-
 def start_peer_chunk_server(listen_ip: str, listen_port: int, shared_dir: os.PathLike | str) -> None:
-    """Simple thread-per-connection peer server for file chunks.
-
-    This is useful as a standalone demo or can be adapted into your own peer program.
-    """
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind((listen_ip, listen_port))
@@ -622,7 +517,6 @@ def start_peer_chunk_server(listen_ip: str, listen_port: int, shared_dir: os.Pat
         listener.close()
 
 
-
 def auto_download_from_tracker_server(
     tracker_ip: str,
     tracker_port: int,
@@ -631,14 +525,6 @@ def auto_download_from_tracker_server(
     downloads_dir: os.PathLike | str,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> Path:
-    """One-call flow for the project behavior:
-
-    1. GET the tracker file from the tracker server
-    2. verify MD5 and cache it
-    3. parse it
-    4. immediately begin peer-to-peer download
-    5. delete cached tracker on full success
-    """
     cached_track_path = request_tracker_file(
         tracker_ip=tracker_ip,
         tracker_port=tracker_port,
@@ -653,18 +539,17 @@ def auto_download_from_tracker_server(
 
 
 if __name__ == "__main__":
-    # Small standalone entry point for quick local testing.
     import argparse
 
-    parser = argparse.ArgumentParser(description="Member 3 P2P transfer helper")
+    parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    s1 = sub.add_parser("serve-peer", help="Run a peer chunk server")
+    s1 = sub.add_parser("serve-peer")
     s1.add_argument("--ip", default="0.0.0.0")
     s1.add_argument("--port", type=int, required=True)
     s1.add_argument("--shared-dir", required=True)
 
-    s2 = sub.add_parser("get-track-and-download", help="GET tracker file then download the shared file")
+    s2 = sub.add_parser("get-track-and-download")
     s2.add_argument("--tracker-ip", required=True)
     s2.add_argument("--tracker-port", type=int, required=True)
     s2.add_argument("--track-filename", required=True)
