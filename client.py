@@ -1,11 +1,19 @@
+import os
 import socket
 import sys
 
 from rough_transfer import ProtocolError, parse_tracker_get_response
 
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 6000
+from tracker_client import load_client_thread_config, recv_all
+
 BUFFER_SIZE = 4096
+
+
+def resolve_tracker_addr():
+    if len(sys.argv) >= 3:
+        return sys.argv[1], int(sys.argv[2])
+    t_port, t_ip, _ = load_client_thread_config()
+    return t_ip, t_port
 
 
 def send_msg(sock, msg):
@@ -14,23 +22,13 @@ def send_msg(sock, msg):
     sock.sendall(msg.encode())
 
 
-def recv_all(sock):
-    buf = b""
-    while True:
-        chunk = sock.recv(BUFFER_SIZE)
-        if not chunk:
-            break
-        buf += chunk
-    return buf
-
-
 def open_tracker(host, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((host, port))
     return sock
 
 
-def cmd_createtracker(host, port):
+def cmd_createtracker(host, port, peer_id: str):
     filename = input("  Filename      : ").strip()
     filesize = input("  File size     : ").strip()
     description = input("  Description   : ").strip()
@@ -43,12 +41,17 @@ def cmd_createtracker(host, port):
     try:
         send_msg(sock, msg)
         print(f"  → Sent : {msg}")
-        print(f"  ← Reply: {recv_all(sock).decode(errors='replace').strip()}")
+        reply = recv_all(sock).decode(errors="replace").strip()
+        print(f"  ← Reply: {reply}")
+        if peer_id and "succ" in reply:
+            print(
+                f"{peer_id}: createtracker {filename} {filesize} {description} {md5} {ip} {port_in}"
+            )
     finally:
         sock.close()
 
 
-def cmd_updatetracker(host, port):
+def cmd_updatetracker(host, port, peer_id: str):
     filename = input("  Filename    : ").strip()
     start_bytes = input("  Start bytes : ").strip()
     end_bytes = input("  End bytes   : ").strip()
@@ -60,16 +63,20 @@ def cmd_updatetracker(host, port):
     try:
         send_msg(sock, msg)
         print(f"  → Sent : {msg}")
-        print(f"  ← Reply: {recv_all(sock).decode(errors='replace').strip()}")
+        reply = recv_all(sock).decode(errors="replace").strip()
+        print(f"  ← Reply: {reply}")
+        if peer_id and "succ" in reply:
+            print(f"{peer_id}: updatetracker {filename} {start_bytes} {end_bytes} {ip} {port_in}")
     finally:
         sock.close()
 
 
-def cmd_list(host, port):
+def cmd_list(host, port, peer_id: str):
     sock = open_tracker(host, port)
     try:
         send_msg(sock, "<REQ LIST>")
-        print("  → Sent : <REQ LIST>")
+        tag = f"{peer_id}: " if peer_id else ""
+        print(f"  {tag}→ Sent : <REQ LIST>")
         raw = recv_all(sock).decode(errors="replace")
         lines = [ln.strip() for ln in raw.strip().splitlines() if ln.strip()]
         if not lines:
@@ -77,22 +84,24 @@ def cmd_list(host, port):
             return
         for ln in lines:
             if ln.startswith("<REP LIST") or ln == "<REP LIST END>":
-                print(f"  ← {ln}")
+                print(f"  {tag}← {ln}")
             else:
                 print(f"     {ln}")
     finally:
         sock.close()
 
 
-def cmd_get(host, port):
+def cmd_get(host, port, peer_id: str):
     filename = input("  Track filename (e.g. myfile.track): ").strip()
     save_as = input("  Save received file as              : ").strip()
 
-    msg = f"<GET {filename}>"
+    track = filename if filename.endswith(".track") else f"{filename}.track"
+    msg = f"<GET {track} >"
     sock = open_tracker(host, port)
     try:
         send_msg(sock, msg)
-        print(f"  → Sent : {msg}")
+        tag = f"{peer_id}: " if peer_id else ""
+        print(f"  {tag}→ Sent : {msg}")
         raw = recv_all(sock)
         if b"<REP GET BEGIN>" not in raw:
             print(f"  ← {raw.decode(errors='replace').strip()}")
@@ -101,6 +110,8 @@ def cmd_get(host, port):
         payload = parse_tracker_get_response(raw)
         with open(save_as, "wb") as f:
             f.write(payload)
+        if peer_id:
+            print(f"{peer_id}: Get {track}")
         print(f"  ✓ Saved '{save_as}' ({len(payload)} bytes)")
     except ProtocolError as e:
         print(f"  [!] {e}")
@@ -108,12 +119,9 @@ def cmd_get(host, port):
         sock.close()
 
 
-def main():
-    host = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_HOST
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PORT
-
-    print(f"\n  Tracker commands use a new TCP connection each time (server closes after reply).")
-    print(f"  Target: {host}:{port}\n")
+def run_interactive_menu(host: str, port: int, peer_id: str = "") -> None:
+    print(f"\n  One TCP connection per tracker command (server closes after reply).")
+    print(f"  Tracker: {host}:{port}\n")
 
     MENU = """
   ┌────────────────────────────────┐
@@ -130,13 +138,13 @@ def main():
         while True:
             choice = input(MENU).strip().lower()
             if choice in ("1", "createtracker"):
-                cmd_createtracker(host, port)
+                cmd_createtracker(host, port, peer_id)
             elif choice in ("2", "updatetracker"):
-                cmd_updatetracker(host, port)
+                cmd_updatetracker(host, port, peer_id)
             elif choice in ("3", "list"):
-                cmd_list(host, port)
+                cmd_list(host, port, peer_id)
             elif choice in ("4", "get"):
-                cmd_get(host, port)
+                cmd_get(host, port, peer_id)
             elif choice in ("q", "quit", "exit"):
                 print("\n  Goodbye!\n")
                 break
@@ -144,6 +152,12 @@ def main():
                 print("  [!] Unknown command. Try 1–4 or q.")
     except KeyboardInterrupt:
         print("\n\n  Interrupted.")
+
+
+def main():
+    peer_id = os.environ.get("PEER_ID", "").strip()
+    host, port = resolve_tracker_addr()
+    run_interactive_menu(host, port, peer_id)
 
 
 if __name__ == "__main__":

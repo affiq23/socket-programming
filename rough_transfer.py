@@ -136,7 +136,11 @@ def recv_exact(sock: socket.socket, n: int) -> bytes:
 # -----------------------------
 
 def build_tracker_get_request(track_filename: str) -> bytes:
-    return f"<GET {track_filename}>\n".encode("utf-8")
+    # Spec (mid-term): <GET filename.track >\n — space before '>'
+    name = track_filename.strip()
+    if not name.endswith(".track"):
+        name = f"{name}.track"
+    return f"<GET {name} >\n".encode("utf-8")
 
 
 
@@ -347,6 +351,7 @@ def handle_peer_connection(sock: socket.socket, shared_dir: os.PathLike | str) -
     try:
         line = recv_line(sock)
         filename, start, end = parse_peer_chunk_get_request(line)
+        print(f"file chunk requested: {filename} bytes {start}-{end}")
         serve_chunk_to_peer(sock, shared_dir, filename, start, end)
     finally:
         sock.close()
@@ -462,6 +467,10 @@ def _download_worker(
 ) -> None:
     out_path = Path(downloads_dir) / tracker.filename
     try:
+        print(
+            f"downloading {job.start} to {job.end} bytes of {tracker.filename} "
+            f"from {job.peer.ip} {job.peer.port}"
+        )
         payload = request_chunk_from_peer(
             peer_ip=job.peer.ip,
             peer_port=job.peer.port,
@@ -568,6 +577,7 @@ def download_file_from_tracker_info(
     if parts_record.exists():
         parts_record.unlink()
 
+    print(f"File {tracker.filename} download complete")
     return out_path, results
 
 

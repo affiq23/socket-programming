@@ -74,7 +74,7 @@ def main():
         text = r.decode()
         assert "<REP LIST 1>" in text and "<REP LIST END>" in text, text
 
-        r = send_cmd(f"<GET {name}.track>")
+        r = send_cmd(f"<GET {name}.track >")
         assert b"<REP GET BEGIN>" in r and b"<REP GET END " in r, r
 
         from rough_transfer import parse_tracker_get_response
