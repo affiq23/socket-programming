@@ -1,0 +1,22 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Mac system files
+.DS_Store
+
+# Project specific local test directories
+peer*/
+shared/
+torrents/
+leech_cache/
+leech_dl/
+
+# Local test outputs
+sent_text.txt
+*.track
+
+# Ignore active configs, but KEEP the .example templates
+*.cfg
+!*.cfg.example
