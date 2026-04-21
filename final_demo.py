@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""
+CS 4390 – Final Demo Automation Script
+
+Timeline (per spec):
+  T=0s      : Start tracker + Peer1 (small.dat seeder) + Peer2 (large.dat seeder)
+  T=30s     : Start Peers 3-8  (6 leechers, download BOTH files)
+  T=1m30s   : Start Peers 9-13 (5 leechers, download BOTH files)
+              AND terminate Peer1 + Peer2
+"""
+
 import os
 import signal
 import subprocess
@@ -6,100 +16,172 @@ import sys
 import time
 from pathlib import Path
 
+# ------------------------------------------------------------------ #
+# Config
+# ------------------------------------------------------------------ #
+TRACKER_PORT    = 6000
+SEEDER1_PORT    = 9001   # Peer1 – small.dat
+SEEDER2_PORT    = 9002   # Peer2 – large.dat
+WAVE1_BASE_PORT = 9010   # Peers 3-8  (6 peers)
+WAVE2_BASE_PORT = 9020   # Peers 9-13 (5 peers)
+
+SMALL_FILE = "small.dat"
+LARGE_FILE = "large.dat"
+
+SMALL_SIZE_BYTES = 1024 * 5          # 5 KB
+LARGE_SIZE_BYTES = 1024 * 1024 * 50  # 50 MB  (takes >80s with 10-worker pool + 0.01s sleep)
+
+
+# ------------------------------------------------------------------ #
+# Setup
+# ------------------------------------------------------------------ #
 def create_demo_files():
-    """Generates the test files and forces the 5-second tracker config."""
     print("[*] Setting up demo environment...")
     Path("shared").mkdir(exist_ok=True)
-    
-    # Force tracker updates to 5 seconds so Wave 1 tells the tracker they are seeders
+
+    # 5-second refresh so Wave 1 leechers report back as seeders in time for Wave 2
     with open("clientThreadConfig.cfg", "w") as f:
-        f.write("6000\n127.0.0.1\n5\n")
+        f.write(f"{TRACKER_PORT}\n127.0.0.1\n5\n")
     with open("serverThreadConfig.cfg", "w") as f:
         f.write("9000\nshared\n")
-    
-    # Small file (5 KB)
-    small_path = Path("shared/small.dat")
-    if not small_path.exists():
-        small_path.write_bytes(os.urandom(1024 * 5))
-        
-    # Large file (50 MB)
-    large_path = Path("shared/large.dat")
-    if not large_path.exists():
-        print("[*] Generating 50MB large.dat (this takes a few seconds)...")
-        large_path.write_bytes(os.urandom(1024 * 1024 * 50))
 
-def launch_peer(peer_id, mode, filename, port):
-    """Helper to launch a peer process with the correct environment variables."""
+    small_path = Path(f"shared/{SMALL_FILE}")
+    if not small_path.exists():
+        small_path.write_bytes(os.urandom(SMALL_SIZE_BYTES))
+        print(f"[*] Created {SMALL_FILE} ({SMALL_SIZE_BYTES} bytes)")
+
+    large_path = Path(f"shared/{LARGE_FILE}")
+    if not large_path.exists():
+        print(f"[*] Generating {LARGE_FILE} ({LARGE_SIZE_BYTES // (1024*1024)} MB) ...")
+        large_path.write_bytes(os.urandom(LARGE_SIZE_BYTES))
+        print(f"[*] {LARGE_FILE} ready.")
+
+
+# ------------------------------------------------------------------ #
+# Process helpers
+# ------------------------------------------------------------------ #
+def launch_peer(peer_id: str, mode: str, files: str, port: int) -> subprocess.Popen:
+    """
+    files: comma-separated filenames, e.g. "small.dat,large.dat"
+    """
     env = os.environ.copy()
     env["PEER_ID"] = peer_id
     cmd = [
-        sys.executable, "peer.py", 
-        "--mode", mode, 
-        "--file", filename, 
-        "--listen-port", str(port)
+        sys.executable, "peer.py",
+        "--mode", mode,
+        "--file", files,
+        "--listen-port", str(port),
     ]
     return subprocess.Popen(cmd, env=env)
 
+
+def wait_for_tracker(port: int, retries: int = 20, delay: float = 0.5):
+    import socket
+    for _ in range(retries):
+        try:
+            s = socket.create_connection(("127.0.0.1", port), timeout=1)
+            s.close()
+            return True
+        except OSError:
+            time.sleep(delay)
+    return False
+
+
+def terminate(proc: subprocess.Popen, label: str):
+    try:
+        proc.send_signal(signal.SIGINT)
+        proc.wait(timeout=3)
+    except Exception:
+        proc.kill()
+    print(f"{label} terminated")
+
+
+# ------------------------------------------------------------------ #
+# Main
+# ------------------------------------------------------------------ #
 def main():
     create_demo_files()
-    active_processes = []
+    active_processes: list[subprocess.Popen] = []
+    t_start = time.time()
 
-    print("\n" + "="*50)
-    print("P2P demo starting...")
-    print("="*50 + "\n")
+    def elapsed():
+        return time.time() - t_start
 
-    # --- T = 0 SECONDS ---
-    print("[T=0s] Starting Tracker Server on port 6000...")
+    print("\n" + "=" * 55)
+    print("  CS 4390 – P2P File Sharing Final Demo")
+    print("=" * 55 + "\n")
+
+    # ---- T = 0s --------------------------------------------------- #
+    print(f"[T={elapsed():.0f}s] Starting Tracker Server on port {TRACKER_PORT}...")
     tracker = subprocess.Popen([sys.executable, "tracker_server.py"])
     active_processes.append(tracker)
-    time.sleep(2) 
-    
-    print("[T=0s] Starting Seeder1 (small.dat) and Seeder2 (large.dat)...")
-    s1 = launch_peer("Seeder1", "seeder", "small.dat", 9001)
-    s2 = launch_peer("Seeder2", "seeder", "large.dat", 9002)
-    active_processes.extend([s1, s2])
 
-    # --- T = 30 SECONDS ---
-    print("\nWaiting 30 seconds before launching first wave of leechers...\n")
-    time.sleep(30)
-    
-    print("[T=30s] Starting 5 Leechers to download large.dat...")
-    for i in range(5):
-        port = 9010 + i
-        p = launch_peer(f"Leecher_Wave1_{i+1}", "leecher", "large.dat", port)
+    if not wait_for_tracker(TRACKER_PORT):
+        print("ERROR: tracker did not come up in time.")
+        sys.exit(1)
+    print(f"[T={elapsed():.0f}s] Tracker is up.")
+
+    print(f"[T={elapsed():.0f}s] Starting Peer1 ({SMALL_FILE} seeder) on port {SEEDER1_PORT}...")
+    p1 = launch_peer("Peer1", "seeder", SMALL_FILE, SEEDER1_PORT)
+    active_processes.append(p1)
+    time.sleep(1)  # let seeder register with tracker before wave 1
+
+    print(f"[T={elapsed():.0f}s] Starting Peer2 ({LARGE_FILE} seeder) on port {SEEDER2_PORT}...")
+    p2 = launch_peer("Peer2", "seeder", LARGE_FILE, SEEDER2_PORT)
+    active_processes.append(p2)
+    time.sleep(1)
+
+    # ---- T = 30s -------------------------------------------------- #
+    remaining = 30 - elapsed()
+    if remaining > 0:
+        print(f"\n[*] Waiting {remaining:.0f}s before Wave 1...\n")
+        time.sleep(remaining)
+
+    print(f"[T={elapsed():.0f}s] Starting Peers 3-8 (6 leechers, downloading both files)...")
+    wave1 = []
+    for i in range(6):                              # peers 3-8
+        peer_id = f"Peer{3 + i}"
+        port = WAVE1_BASE_PORT + i
+        p = launch_peer(peer_id, "leecher", f"{SMALL_FILE},{LARGE_FILE}", port)
         active_processes.append(p)
+        wave1.append(p)
+        print(f"  launched {peer_id} on port {port}")
 
-    # --- T = 1 MINUTE 45 SECONDS (Wait 75s) ---
-    print("\nWaiting 75 seconds for Wave 1 to finish and report to tracker...\n")
-    time.sleep(75)
+    # ---- T = 1m30s ------------------------------------------------ #
+    remaining = 90 - elapsed()
+    if remaining > 0:
+        print(f"\n[*] Waiting {remaining:.0f}s for Wave 1 to download + seed...\n")
+        time.sleep(remaining)
 
-    print("[T=1m45s] Terminating original seeders (Demonstrating P2P swarm resilience)...")
-    s1.send_signal(signal.SIGINT)
-    s2.send_signal(signal.SIGINT)
-    time.sleep(2) # Give the sockets a second to cleanly detach
-    
-    print("[T=1m45s] Starting 5 MORE Leechers...")
-    for i in range(5):
-        port = 9020 + i
-        target_file = "small.dat" if i % 2 == 0 else "large.dat"
-        p = launch_peer(f"Leecher_Wave2_{i+1}", "leecher", target_file, port)
+    print(f"[T={elapsed():.0f}s] Terminating Peer1 and Peer2 (original seeders)...")
+    terminate(p1, "Peer1")
+    terminate(p2, "Peer2")
+
+    print(f"[T={elapsed():.0f}s] Starting Peers 9-13 (5 leechers, downloading both files)...")
+    for i in range(5):                              # peers 9-13
+        peer_id = f"Peer{9 + i}"
+        port = WAVE2_BASE_PORT + i
+        p = launch_peer(peer_id, "leecher", f"{SMALL_FILE},{LARGE_FILE}", port)
         active_processes.append(p)
+        print(f"  launched {peer_id} on port {port}")
 
-    print("\nAll demo stages triggered! The swarm is fully self-sustaining.")
-    print("Press Ctrl+C to terminate the entire simulation when ready.\n")
+    # ---- Hold ----------------------------------------------------- #
+    print(f"\n[T={elapsed():.0f}s] All stages triggered. Swarm is running.")
+    print("Press Ctrl+C to shut everything down when done.\n")
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n\nShutting down all nodes and cleaning up...")
-        for p in active_processes:
+        print("\n\n[*] Shutting down all nodes...")
+        for p in reversed(active_processes):
             try:
                 p.send_signal(signal.SIGINT)
                 p.wait(timeout=2)
-            except:
-                p.kill() 
-        print("Demo complete!")
+            except Exception:
+                p.kill()
+        print("[*] Demo complete.")
+
 
 if __name__ == "__main__":
     main()
