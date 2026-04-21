@@ -1,0 +1,6 @@
+Filename: testfile.txt
+Filesize: 26
+Description: test_file
+MD5: abc123
+#list of peers follows next
+192.168.1.229:9000:0:26:1774231100
