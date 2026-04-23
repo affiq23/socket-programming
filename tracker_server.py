@@ -120,29 +120,44 @@ def handle_updatetracker(parts: list) -> str:
     with file_lock:
         header, peers = read_track_file(path)
         if header is None:
-            print(f"[updatetracker] Track file not found: {path}")
+            # Only print error if it's an actual error, not a successful update
+            # print(f"[updatetracker] Track file not found: {path}")
             return f"<updatetracker {filename} ferr>\n"
 
         peers = purge_dead_peers(peers)
-
         now = int(time.time())
-        found = False
+
+        # --- BUG 2 FIX: Merge overlapping/adjacent chunks instead of overwriting ---
+        intervals = []
         for p in peers:
             if p["ip"] == ip and p["port"] == port:
-                p["start"] = start
-                p["end"] = end
-                p["timestamp"] = now
-                found = True
-                break
-
-        if not found:
-            peers.append(
-                {"ip": ip, "port": port, "start": start, "end": end, "timestamp": now}
-            )
+                intervals.append([int(p["start"]), int(p["end"])])
+        
+        intervals.append([int(start), int(end)])
+        
+        intervals.sort(key=lambda x: x[0])
+        merged_intervals = []
+        for interval in intervals:
+            if not merged_intervals or merged_intervals[-1][1] < interval[0] - 1:
+                merged_intervals.append(interval)
+            else:
+                merged_intervals[-1][1] = max(merged_intervals[-1][1], interval[1])
+        
+        peers = [p for p in peers if not (p["ip"] == ip and p["port"] == port)]
+        
+        for mi in merged_intervals:
+            peers.append({
+                "ip": ip,
+                "port": port,
+                "start": str(mi[0]),
+                "end": str(mi[1]),
+                "timestamp": now
+            })
 
         write_track_file(path, header, peers)
 
-    print(f"[updatetracker] Updated {path} for {ip}:{port}")
+    # --- Muted to prevent terminal spam ---
+    # print(f"[updatetracker] Updated {path} for {ip}:{port}")
     return f"<updatetracker {filename} succ>\n"
 
 
@@ -187,7 +202,8 @@ def handle_get(parts: list) -> str:
 
 
 def handle_client(conn, addr):
-    print(f"[+] Connection from {addr}")
+    # --- Muted connection logs for less terminal spam ---
+    # print(f"[+] Connection from {addr}")
     try:
         data = b""
         while True:
@@ -199,12 +215,22 @@ def handle_client(conn, addr):
                 break
 
         raw = data.decode(errors="ignore").strip()
-        print(f"[>] Received: {raw}")
+        
+        # --- Add this check so we stop flooding the terminal! ---
+        if not raw.startswith("<updatetracker"):
+            print(f"[>] Received: {raw}")
 
-        if raw.startswith("<") and raw.endswith(">"):
-            raw = raw[1:-1].strip()
-
-        parts = raw.split()
+        parts = []
+        # --- BUG 3 FIX: Strict check for the exact GET format requested by the spec ---
+        if raw.startswith("<GET ") and raw.endswith(" >"):
+            filename = raw[5:-2].strip()
+            parts = ["get", filename]
+            
+        elif raw.startswith("<") and raw.endswith(">"):
+            inner_raw = raw[1:-1].strip()
+            parts = inner_raw.split()
+        else:
+            parts = raw.split()
 
         if not parts:
             conn.sendall(b"<error>\n")
@@ -217,6 +243,7 @@ def handle_client(conn, addr):
         elif cmd == "updatetracker":
             response = handle_updatetracker(parts)
         elif parts[0] == "REQ" and len(parts) > 1 and parts[1] == "LIST":
+            cmd = "list"
             response = handle_list()
         elif cmd == "get":
             response = handle_get(parts)
@@ -225,13 +252,15 @@ def handle_client(conn, addr):
             response = "<error unknown command>\n"
 
         conn.sendall(response.encode())
-        print(f"[<] Sent response for '{cmd}'")
+        
+        if not raw.startswith("<updatetracker"):
+            print(f"[<] Sent response for '{cmd}'")
 
     except Exception as e:
         print(f"[!] Error handling {addr}: {e}")
     finally:
         conn.close()
-        print(f"[-] Closed connection from {addr}")
+        # print(f"[-] Closed connection from {addr}")
 
 
 def main():
@@ -242,11 +271,16 @@ def main():
     print(f"[*] Tracker server listening on port {PORT}")
     print(f"[*] Storing .track files in: {os.path.abspath(TORRENTS_DIR)}")
 
-    while True:
-        conn, addr = server.accept()
-        t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
-        t.start()
+    try: 
+        while True:
+            conn, addr = server.accept()
+            t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
+            t.start()
+    except KeyboardInterrupt:
+        print("[*] Tracker shutting down.")
+    finally:
+        server.close()
 
 
 if __name__ == "__main__":
-    main()
+    main() 
