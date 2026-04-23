@@ -378,9 +378,12 @@ def _download_worker(
         results.append(DownloadResult(job.start, job.end, peer_tup, False, "blacklisted"))
         return
 
-    time.sleep(0.01) 
+    time.sleep(0.01)
     out_path = Path(downloads_dir) / tracker.filename
     try:
+        peer_id = os.environ.get("PEER_ID", "Peer")
+        print(f"{peer_id} downloading {job.start} to {job.end} bytes of "
+              f"{tracker.filename} from {job.peer.ip} {job.peer.port}")
         payload = request_chunk_from_peer(
             peer_ip=job.peer.ip,
             peer_port=job.peer.port,

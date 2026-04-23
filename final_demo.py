@@ -10,6 +10,7 @@ Timeline (per spec):
 """
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -36,6 +37,9 @@ LARGE_SIZE_BYTES = 1024 * 1024 * 2  # 2 MB
 # Setup
 # ------------------------------------------------------------------ #
 def create_demo_files():
+    if Path("torrents").exists(): # wipe old tracker files if any
+        shutil.rmtree("torrents")
+    Path("torrents").mkdir()
     print("[*] Setting up demo environment...")
     Path("shared").mkdir(exist_ok=True)
 
@@ -93,7 +97,7 @@ def terminate(proc: subprocess.Popen, label: str):
         proc.wait(timeout=3)
     except Exception:
         proc.kill()
-    print(f"{label} terminated")
+    
 
 
 # ------------------------------------------------------------------ #

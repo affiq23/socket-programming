@@ -243,6 +243,7 @@ def handle_client(conn, addr):
         elif cmd == "updatetracker":
             response = handle_updatetracker(parts)
         elif parts[0] == "REQ" and len(parts) > 1 and parts[1] == "LIST":
+            cmd = "list"
             response = handle_list()
         elif cmd == "get":
             response = handle_get(parts)
@@ -270,10 +271,15 @@ def main():
     print(f"[*] Tracker server listening on port {PORT}")
     print(f"[*] Storing .track files in: {os.path.abspath(TORRENTS_DIR)}")
 
-    while True:
-        conn, addr = server.accept()
-        t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
-        t.start()
+    try: 
+        while True:
+            conn, addr = server.accept()
+            t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
+            t.start()
+    except KeyboardInterrupt:
+        print("[*] Tracker shutting down.")
+    finally:
+        server.close()
 
 
 if __name__ == "__main__":
