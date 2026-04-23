@@ -47,7 +47,7 @@ def _periodic_updatetracker(
 
 
 def _do_leecher_download(peer_id: str, track_ip: str, track_port: int,
-                         filename: str, shared_dir: Path) -> bool:
+                         filename: str, shared_dir: Path, listen_port: int) -> bool:
     """Download a single file via rough_transfer subprocess, then copy to shared dir."""
     downloads_dir = Path(f"./{peer_id}_downloads")
     cmd = [
@@ -57,6 +57,7 @@ def _do_leecher_download(peer_id: str, track_ip: str, track_port: int,
         "--track-filename", f"{filename}.track",
         "--cache-dir", f"./{peer_id}_cache",
         "--downloads-dir", str(downloads_dir),
+        "--peer-listen-port", str(listen_port),
     ]
     try:
         subprocess.run(cmd, check=True)
@@ -184,7 +185,7 @@ def main() -> None:
                 print(f"{peer_id}: LIST failed: {e}")
 
             print(f"{peer_id}: Get {filename}.track")
-            _do_leecher_download(peer_id, track_ip, track_port, filename, shared.resolve())
+            _do_leecher_download(peer_id, track_ip, track_port, filename, shared.resolve(), listen_port)
 
         # Keep alive so the chunk server can serve what was downloaded
         print(f"{peer_id}: All downloads done. Staying alive to seed...")

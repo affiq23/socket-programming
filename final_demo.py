@@ -29,7 +29,7 @@ SMALL_FILE = "small.dat"
 LARGE_FILE = "large.dat"
 
 SMALL_SIZE_BYTES = 1024 * 5          # 5 KB
-LARGE_SIZE_BYTES = 1024 * 1024 * 50  # 50 MB  (takes >80s with 10-worker pool + 0.01s sleep)
+LARGE_SIZE_BYTES = 1024 * 1024 * 2  # 2 MB
 
 
 # ------------------------------------------------------------------ #

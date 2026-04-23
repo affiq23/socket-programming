@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tracker_client import peer_lan_ip
 
 import hashlib
 import os
@@ -12,7 +13,7 @@ from typing import Dict, List, Optional, Tuple
 
 CHUNK_SIZE_LIMIT = 1024
 SOCKET_BUFFER_SIZE = 4096
-DEFAULT_TIMEOUT = 5.0
+DEFAULT_TIMEOUT = 2.0  # Reduced timeout so dead peers fail fast
 
 class ProtocolError(Exception):
     pass
@@ -273,8 +274,9 @@ def handle_peer_connection(sock: socket.socket, shared_dir: os.PathLike | str) -
     try:
         line = recv_line(sock)
         filename, start, end = parse_peer_chunk_get_request(line)
-        print(f"file chunk requested: {filename} bytes {start}-{end}")
         serve_chunk_to_peer(sock, shared_dir, filename, start, end)
+    except Exception:
+        pass
     finally:
         sock.close()
 
@@ -362,17 +364,23 @@ def _download_worker(
     results: List[DownloadResult],
     completed: set[Tuple[int, int]],
     completed_lock: threading.Lock,
+    bad_peers: set[Tuple[str, int]],
     timeout: float,
+    tracker_ip: str = "",
+    tracker_port: int = 0,
+    peer_listen_port: int = 0,
+    peer_ip: str = "",
 ) -> None:
-    # --- ADDED: Simulate network latency for localhost grading ---
-    time.sleep(0.01) 
+    peer_tup = (job.peer.ip, job.peer.port)
     
+    # --- INSTANTLY SKIP DEAD PEERS SO IT DOES NOT HANG ---
+    if peer_tup in bad_peers:
+        results.append(DownloadResult(job.start, job.end, peer_tup, False, "blacklisted"))
+        return
+
+    time.sleep(0.01) 
     out_path = Path(downloads_dir) / tracker.filename
     try:
-        print(
-            f"downloading {job.start} to {job.end} bytes of {tracker.filename} "
-            f"from {job.peer.ip} {job.peer.port}"
-        )
         payload = request_chunk_from_peer(
             peer_ip=job.peer.ip,
             peer_port=job.peer.port,
@@ -383,9 +391,7 @@ def _download_worker(
         )
         expected_size = job.end - job.start + 1
         if len(payload) != expected_size:
-            raise ProtocolError(
-                f"chunk size mismatch for {job.start}-{job.end}: got {len(payload)}, expected {expected_size}"
-            )
+            raise ProtocolError(f"chunk mismatch")
 
         with file_lock:
             ensure_parent_dir(out_path)
@@ -398,29 +404,27 @@ def _download_worker(
             completed.add((job.start, job.end))
             save_completed_segments(downloads_dir, tracker.filename, completed)
 
-        results.append(
-            DownloadResult(
-                start=job.start,
-                end=job.end,
-                peer=(job.peer.ip, job.peer.port),
-                success=True,
-            )
-        )
+        if tracker_ip and tracker_port and peer_listen_port:
+            try:
+                msg = f"<updatetracker {tracker.filename} {job.start} {job.end} {peer_ip} {peer_listen_port}>\n"
+                with socket.create_connection((tracker_ip, tracker_port), timeout=timeout) as tsock:
+                    tsock.sendall(msg.encode("utf-8"))
+            except Exception:
+                pass
+
+        results.append(DownloadResult(job.start, job.end, peer_tup, True))
     except Exception as exc:
-        results.append(
-            DownloadResult(
-                start=job.start,
-                end=job.end,
-                peer=(job.peer.ip, job.peer.port),
-                success=False,
-                error=str(exc),
-            )
-        )
+        # INSTANTLY ADD TO BLACKLIST ON FIRST FAILURE
+        bad_peers.add(peer_tup)
+        results.append(DownloadResult(job.start, job.end, peer_tup, False, str(exc)))
 
 def download_file_from_tracker_info(
     tracker: TrackerInfo,
     downloads_dir: os.PathLike | str,
     timeout: float = DEFAULT_TIMEOUT,
+    tracker_ip: str = "",
+    tracker_port: int = 0,
+    peer_listen_port: int = 0,
 ) -> Tuple[Path, List[DownloadResult]]:
     downloads_dir = Path(downloads_dir)
     downloads_dir.mkdir(parents=True, exist_ok=True)
@@ -431,59 +435,62 @@ def download_file_from_tracker_info(
             if tracker.filesize > 0:
                 f.truncate(tracker.filesize)
 
-    completed = load_completed_segments(downloads_dir, tracker.filename)
-    jobs = plan_chunk_jobs(tracker, completed)
-    if not jobs and len(completed) == len(build_all_segments(tracker.filesize)):
-        if md5_file(out_path) != tracker.md5:
-            raise ProtocolError("resume record says complete, but file MD5 does not match tracker")
-        return out_path, []
-
     file_lock = threading.Lock()
     completed_lock = threading.Lock()
-    results: List[DownloadResult] = []
+    all_results: List[DownloadResult] = []
+    
+    peer_ip = peer_lan_ip() if peer_listen_port else ""
+    bad_peers = set()
 
-    # --- ADDED: ThreadPoolExecutor to prevent thread explosion crashes ---
-    # Limits to 10 active concurrent downloads at a time
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = []
-        for job in jobs:
-            futures.append(
-                executor.submit(
-                    _download_worker, job, tracker, downloads_dir, file_lock, 
-                    results, completed, completed_lock, timeout
+    for _ in range(10): # Try up to 10 rounds of jobs
+        completed = load_completed_segments(downloads_dir, tracker.filename)
+        tracker.peers = [p for p in tracker.peers if (p.ip, p.port) not in bad_peers]
+        jobs = plan_chunk_jobs(tracker, completed)
+        
+        if not jobs and len(completed) == len(build_all_segments(tracker.filesize)):
+            break
+        if not jobs:
+            break
+
+        results: List[DownloadResult] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = []
+            for job in jobs:
+                futures.append(
+                    executor.submit(
+                        _download_worker, job, tracker, downloads_dir, file_lock, 
+                        results, completed, completed_lock, bad_peers, timeout,
+                        tracker_ip, tracker_port, peer_listen_port, peer_ip
+                    )
                 )
-            )
-        concurrent.futures.wait(futures)
+            concurrent.futures.wait(futures)
+        all_results.extend(results)
 
+    completed = load_completed_segments(downloads_dir, tracker.filename)
     all_segments = set(build_all_segments(tracker.filesize))
     missing = all_segments - completed
     if missing:
-        raise ProtocolError(f"download incomplete; still missing segments: {sorted(missing)[:10]}")
+        raise ProtocolError(f"download incomplete; still missing segments")
 
     actual_md5 = md5_file(out_path)
     if actual_md5 != tracker.md5:
-        raise ProtocolError(
-            f"final file MD5 mismatch: expected {tracker.md5}, computed {actual_md5}"
-        )
+        raise ProtocolError("MD5 mismatch")
 
     parts_record = record_path_for(downloads_dir, tracker.filename)
     if parts_record.exists():
         parts_record.unlink()
 
-    print(f"File {tracker.filename} download complete")
-    return out_path, results
+    return out_path, all_results
 
 def start_peer_chunk_server(listen_ip: str, listen_port: int, shared_dir: os.PathLike | str) -> None:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind((listen_ip, listen_port))
     listener.listen()
-    print(f"Peer chunk server listening on {listen_ip}:{listen_port}")
 
     try:
         while True:
             conn, addr = listener.accept()
-            print(f"Accepted chunk request from {addr}")
             t = threading.Thread(target=handle_peer_connection, args=(conn, shared_dir), daemon=True)
             t.start()
     finally:
@@ -496,18 +503,39 @@ def auto_download_from_tracker_server(
     cache_dir: os.PathLike | str,
     downloads_dir: os.PathLike | str,
     timeout: float = DEFAULT_TIMEOUT,
+    peer_listen_port: int = 0,
 ) -> Path:
-    cached_track_path = request_tracker_file(
-        tracker_ip=tracker_ip,
-        tracker_port=tracker_port,
-        track_filename=track_filename,
-        cache_dir=cache_dir,
-        timeout=timeout,
-    )
-    tracker = parse_tracker_file(cached_track_path)
-    final_path, _ = download_file_from_tracker_info(tracker, downloads_dir=downloads_dir, timeout=timeout)
-    cached_track_path.unlink(missing_ok=True)
-    return final_path
+    
+    # --- AUTOMATIC RETRY IF TRACKER LIST IS STALE ---
+    for attempt in range(5):
+        cached_track_path = request_tracker_file(
+            tracker_ip=tracker_ip,
+            tracker_port=tracker_port,
+            track_filename=track_filename,
+            cache_dir=cache_dir,
+            timeout=timeout,
+        )
+        tracker = parse_tracker_file(cached_track_path)
+        
+        try:
+            final_path, _ = download_file_from_tracker_info(
+                tracker, 
+                downloads_dir=downloads_dir, 
+                timeout=timeout,
+                tracker_ip=tracker_ip,
+                tracker_port=tracker_port,
+                peer_listen_port=peer_listen_port
+            )
+            cached_track_path.unlink(missing_ok=True)
+            return final_path
+        except ProtocolError as e:
+            if "download incomplete" in str(e) and attempt < 4:
+                # If we ran out of peers, wait 2 seconds and fetch an updated list!
+                time.sleep(2)
+                continue
+            raise
+
+    raise ProtocolError("Failed to complete download after multiple tracker refreshes.")
 
 if __name__ == "__main__":
     import argparse
@@ -526,6 +554,7 @@ if __name__ == "__main__":
     s2.add_argument("--track-filename", required=True)
     s2.add_argument("--cache-dir", required=True)
     s2.add_argument("--downloads-dir", required=True)
+    s2.add_argument("--peer-listen-port", type=int, default=0)
 
     args = parser.parse_args()
 
@@ -538,5 +567,5 @@ if __name__ == "__main__":
             track_filename=args.track_filename,
             cache_dir=args.cache_dir,
             downloads_dir=args.downloads_dir,
+            peer_listen_port=args.peer_listen_port,
         )
-        print(f"Download complete: {out}")
