@@ -37,7 +37,7 @@ Utility module shared by `peer.py`, `client.py`, and `rough_transfer.py`. Not a 
 ### `rough_transfer.py`
 The core file transfer engine. Handles everything below the tracker protocol level — actually fetching chunks from peers and serving chunks to other peers.
 
-**Key functions:**
+**Key functions:**cle
 
 - `start_peer_chunk_server(ip, port, shared_dir)` — Starts a TCP listener that accepts connections from other peers requesting file chunks. Each connection is handed to a daemon thread.
 - `serve_chunk_to_peer(sock, shared_dir, filename, start, end)` — Validates a chunk request (size ≤ 1024 bytes, file exists, byte range valid) and sends the raw bytes. Returns `<GET invalid>` on any violation.

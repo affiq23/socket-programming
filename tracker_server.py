@@ -191,9 +191,10 @@ def handle_get(parts: list) -> str:
     if not os.path.exists(path):
         print(f"[GET] Track file not found: {path}")
         return "<GET invalid>\n"
-
-    with open(path, "r") as f:
-        content = f.read()
+    
+    with file_lock: 
+        with open(path, "r") as f:
+            content = f.read()
 
     file_md5 = md5_of_string(content)
     response = f"<REP GET BEGIN>\n{content}\n<REP GET END {file_md5}>\n"

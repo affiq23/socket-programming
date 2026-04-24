@@ -30,7 +30,7 @@ SMALL_FILE = "small.dat"
 LARGE_FILE = "large.dat"
 
 SMALL_SIZE_BYTES = 1024 * 5          # 5 KB
-LARGE_SIZE_BYTES = 1024 * 1024 * 2  # 2 MB
+LARGE_SIZE_BYTES = 1024 * 1024 * 15 # 2 MB
 
 
 # ------------------------------------------------------------------ #
@@ -162,7 +162,7 @@ def main():
     terminate(p2, "Peer2")
 
     print(f"[T={elapsed():.0f}s] Starting Peers 9-13 (5 leechers, downloading both files)...")
-    for i in range(5):                              # peers 9-13
+    for i in range(5):                              
         peer_id = f"Peer{9 + i}"
         port = WAVE2_BASE_PORT + i
         p = launch_peer(peer_id, "leecher", f"{SMALL_FILE},{LARGE_FILE}", port)

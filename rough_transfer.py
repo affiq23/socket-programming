@@ -378,7 +378,7 @@ def _download_worker(
         results.append(DownloadResult(job.start, job.end, peer_tup, False, "blacklisted"))
         return
 
-    time.sleep(0.01)
+    time.sleep(0.05)
     out_path = Path(downloads_dir) / tracker.filename
     try:
         peer_id = os.environ.get("PEER_ID", "Peer")
