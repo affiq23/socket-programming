@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 CHUNK_SIZE_LIMIT = 1024
 SOCKET_BUFFER_SIZE = 4096
 DEFAULT_TIMEOUT = 2.0  # Reduced timeout so dead peers fail fast
+TRACKER_TIMEOUT = 30.0
 
 class ProtocolError(Exception):
     pass
@@ -141,7 +142,7 @@ def request_tracker_file(
     tracker_port: int,
     track_filename: str,
     cache_dir: os.PathLike | str,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float =TRACKER_TIMEOUT,
 ) -> Path:
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -378,7 +379,7 @@ def _download_worker(
         results.append(DownloadResult(job.start, job.end, peer_tup, False, "blacklisted"))
         return
 
-    time.sleep(0.01)
+    
     out_path = Path(downloads_dir) / tracker.filename
     try:
         peer_id = os.environ.get("PEER_ID", "Peer")
@@ -516,7 +517,7 @@ def auto_download_from_tracker_server(
             tracker_port=tracker_port,
             track_filename=track_filename,
             cache_dir=cache_dir,
-            timeout=timeout,
+            timeout=TRACKER_TIMEOUT,
         )
         tracker = parse_tracker_file(cached_track_path)
         

@@ -1,25 +1,15 @@
-PYTHON ?= python3
+# P2P File Sharing Makefile
 
-.PHONY: all tracker peer client test demo-local clean
+.PHONY: all run clean
 
 all:
-	@echo "make tracker | make peer | make client | make test"
+	@echo "Type 'make run' to execute automated final demo."
+	@echo "Type 'make clean' to wipe generated cache/dummy files."
 
-tracker:
-	$(PYTHON) tracker_server.py
+# run final demo
+run:
+	python3 final_demo.py
 
-peer:
-	$(PYTHON) peer.py
-
-client:
-	$(PYTHON) client.py
-
-test:
-	$(PYTHON) test_integration.py
-	./simulate_two_laptops.sh
-
-demo-local:
-	./simulate_two_laptops.sh
-
+# clean up to reset workspace
 clean:
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	rm -rf Peer* shared torrents __pycache__ peer2 sent_text.txt
