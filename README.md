@@ -7,4 +7,5 @@ rough_transfer.py — p2p download / serve-peer cli
 
 configs: `sconfig.cfg`, copy `clientThreadConfig.cfg.example` and `serverThreadConfig.cfg.example`  
 
-see DEMO.md for the actual demo steps  
+see FINAL_DEMO.md for actual demo steps  
+(will add guide for running on two machines)
