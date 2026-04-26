@@ -30,7 +30,7 @@ SMALL_FILE = "small.dat"
 LARGE_FILE = "large.dat"
 
 SMALL_SIZE_BYTES = 1024 * 5          # 5 KB
-LARGE_SIZE_BYTES = 1024 * 1024 * 20 # 2 MB
+LARGE_SIZE_BYTES = 1024 * 1024 * 10 # 10 MB
 
 
 # ------------------------------------------------------------------ #

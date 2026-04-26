@@ -37,7 +37,7 @@ Utility module shared by `peer.py`, `client.py`, and `rough_transfer.py`. Not a 
 ### `rough_transfer.py`
 The core file transfer engine. Handles everything below the tracker protocol level — actually fetching chunks from peers and serving chunks to other peers.
 
-**Key functions:**cle
+**Key functions:**
 
 - `start_peer_chunk_server(ip, port, shared_dir)` — Starts a TCP listener that accepts connections from other peers requesting file chunks. Each connection is handed to a daemon thread.
 - `serve_chunk_to_peer(sock, shared_dir, filename, start, end)` — Validates a chunk request (size ≤ 1024 bytes, file exists, byte range valid) and sends the raw bytes. Returns `<GET invalid>` on any violation.
@@ -175,9 +175,12 @@ Both machines must be on the same LAN (same Wi-Fi, no VPN).
 - Must include: member names (alphabetical by last name), each member's role, citations for external code/libraries, code design, installation and running guide
 - Submit as a zip named `Lastname1_Lastname2_Lastname3.zip` containing all source files, Makefile, and the PDF report
 
-### Should take a look at before demo
+### Recommended before demo
 
-**4. Cleanup of leftover peer directories**
+**4. Makefile verification**
+Run `make tracker` and `make peer` on a clean Linux Ubuntu 64-bit machine to confirm everything compiles/runs cleanly. The spec requires a valid Makefile and submission must not include compiled object files.
+
+**5. Cleanup of leftover peer directories**
 After each test run, `final_demo.py` leaves behind `Peer3_downloads/`, `Peer3_cache/`, etc. in the working directory. Consider adding a cleanup step in `create_demo_files()`:
 
 ```python
@@ -185,3 +188,6 @@ import glob
 for d in glob.glob("Peer*_downloads") + glob.glob("Peer*_cache"):
     shutil.rmtree(d, ignore_errors=True)
 ```
+
+**6. Demo dry run on Linux**
+The demo platform is Linux Ubuntu 64-bit. Test at least once on Linux before April 27 — particularly `peer_lan_ip()` behavior and any macOS-specific path quirks.
