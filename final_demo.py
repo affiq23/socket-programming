@@ -3,8 +3,8 @@
 CS 4390 – Final Demo Automation Script
 
 Timeline (per spec):
-  T<0s      : Connect to tracker
-  T=0s      : Start Peer1 (small.dat seeder) + Peer2 (large.dat seeder)
+  T<0s      : Get config files
+  T=0s      : Start tracker, Peer1 (small.dat seeder) + Peer2 (large.dat seeder)
   T=30s     : Start Peers 3-8  (6 leechers, download BOTH files)
   T=1m30s   : Start Peers 9-13 (5 leechers, download BOTH files)
               AND terminate Peer1 + Peer2
