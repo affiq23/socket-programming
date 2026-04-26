@@ -3,7 +3,8 @@
 CS 4390 – Final Demo Automation Script
 
 Timeline (per spec):
-  T=0s      : Start tracker + Peer1 (small.dat seeder) + Peer2 (large.dat seeder)
+  T<0s      : Connect to tracker
+  T=0s      : Start Peer1 (small.dat seeder) + Peer2 (large.dat seeder)
   T=30s     : Start Peers 3-8  (6 leechers, download BOTH files)
   T=1m30s   : Start Peers 9-13 (5 leechers, download BOTH files)
               AND terminate Peer1 + Peer2
@@ -17,10 +18,16 @@ import sys
 import time
 from pathlib import Path
 
+from tracker_client import (
+    load_client_thread_config
+)
 # ------------------------------------------------------------------ #
 # Config
+# cientThreadConfig is opened as the tracker data should be consistent 
+# across peers.
 # ------------------------------------------------------------------ #
-TRACKER_PORT    = 6000
+TRACKER_PORT, TRACKER_IP, REFRESH_SECS = load_client_thread_config()
+
 SEEDER1_PORT    = 9001   # Peer1 – small.dat
 SEEDER2_PORT    = 9002   # Peer2 – large.dat
 WAVE1_BASE_PORT = 9010   # Peers 3-8  (6 peers)
@@ -43,22 +50,36 @@ def create_demo_files():
     print("[*] Setting up demo environment...")
     Path("shared").mkdir(exist_ok=True)
 
-    # 5-second refresh so Wave 1 leechers report back as seeders in time for Wave 2
-    with open("clientThreadConfig.cfg", "w") as f:
-        f.write(f"{TRACKER_PORT}\n127.0.0.1\n5\n")
-    with open("serverThreadConfig.cfg", "w") as f:
-        f.write("9000\nshared\n")
+    # Wipe peer folders left over from previous runs if any
+    all_peer_ids = (
+        ["Peer1", "Peer2"]
+        + [f"Peer{3 + i}" for i in range(6)]
+        + [f"Peer{9 + i}" for i in range(5)]
+    )
+    for peer_id in all_peer_ids:
+        for suffix in ("_downloads", "_cache"):
+            folder = Path(f"{peer_id}{suffix}")
+            if folder.exists():
+                shutil.rmtree(folder)
+                print(f"    removed {folder}/")
 
     small_path = Path(f"shared/{SMALL_FILE}")
     if not small_path.exists():
         small_path.write_bytes(os.urandom(SMALL_SIZE_BYTES))
         print(f"[*] Created {SMALL_FILE} ({SMALL_SIZE_BYTES} bytes)")
+    else:
+        print(f"[*] {SMALL_FILE} already exists. Reusing...")
 
     large_path = Path(f"shared/{LARGE_FILE}")
     if not large_path.exists():
         print(f"[*] Generating {LARGE_FILE} ({LARGE_SIZE_BYTES // (1024*1024)} MB) ...")
         large_path.write_bytes(os.urandom(LARGE_SIZE_BYTES))
         print(f"[*] {LARGE_FILE} ready.")
+    else:
+        print(f"[*] {LARGE_FILE} already exists. Reusing...")
+    
+    print("[*] Demo environment ready.")
+    
 
 
 # ------------------------------------------------------------------ #
@@ -78,12 +99,11 @@ def launch_peer(peer_id: str, mode: str, files: str, port: int) -> subprocess.Po
     ]
     return subprocess.Popen(cmd, env=env)
 
-
-def wait_for_tracker(port: int, retries: int = 20, delay: float = 0.5):
+def wait_for_tracker(host: str, port: int, retries: int = 20, delay: float = 0.5):
     import socket
     for _ in range(retries):
         try:
-            s = socket.create_connection(("127.0.0.1", port), timeout=1)
+            s = socket.create_connection((host, port), timeout=1)
             s.close()
             return True
         except OSError:
@@ -112,19 +132,18 @@ def main():
         return time.time() - t_start
 
     print("\n" + "=" * 55)
-    print("  CS 4390 – P2P File Sharing Final Demo")
+    print("  CS 4390 - P2P File Sharing Final Demo")
     print("=" * 55 + "\n")
-
+    
     # ---- T = 0s --------------------------------------------------- #
-    print(f"[T={elapsed():.0f}s] Starting Tracker Server on port {TRACKER_PORT}...")
-    tracker = subprocess.Popen([sys.executable, "tracker_server.py"])
-    active_processes.append(tracker)
-
-    if not wait_for_tracker(TRACKER_PORT):
+    # Wait for tracker to be ready
+    print(f"[T={elapsed():.0f}s] Waiting for tracker to be ready at {TRACKER_IP}:{TRACKER_PORT}...")
+    if not wait_for_tracker(TRACKER_IP, TRACKER_PORT):
         print("ERROR: tracker did not come up in time.")
         sys.exit(1)
     print(f"[T={elapsed():.0f}s] Tracker is up.")
 
+    # Start peers 1 and 2
     print(f"[T={elapsed():.0f}s] Starting Peer1 ({SMALL_FILE} seeder) on port {SEEDER1_PORT}...")
     p1 = launch_peer("Peer1", "seeder", SMALL_FILE, SEEDER1_PORT)
     active_processes.append(p1)

@@ -1,11 +1,26 @@
 # CS 4390 – P2P File Sharing Project Documentation
 
 ## Table of Contents
-1. [Component Overview](#component-overview)
-2. [Major Changes Since Midterm](#major-changes-since-midterm)
-3. [What Is Left To Do](#what-is-left-to-do)
+1. [Instruction Guide] (#instruction-guide)
+2. [Component Overview](#component-overview)
+3. [Major Changes Since Midterm](#major-changes-since-midterm)
+4. [What Is Left To Do](#what-is-left-to-do)
 
 ---
+
+## Instruction Guide
+
+**What Is Required Beforehand:**
+Two laptops with a Linux environment available/set-up, Python3 set-up, and an unzipped download from this repository's main branch. You can check that you have Python3 setup correctly by running `python3 --version` and verifying the output. 
+
+**How to Run the Final Demo:**
+Configure the config files on both laptops accurately based on the .example files included. Then, on one laptop, simply run tracker_server.py using `python3 tracker_server.py`
+and on another laptop, run the final_demo.py using `python3 final_demo.py`.
+
+For a one-machine test, leave the IP address as 127.0.0.1 (loopback address) and run both tracker_server.py and the final_demo.py on different terminal tabs. 
+
+The script handles everything from there — creating the test files, launching all peers in waves, terminating the original seeders at the 90-second mark, and cleaning up leftover folders at the start of each run. Press **Ctrl+C** when done to shut down all nodes.
+
 
 ## Component Overview
 
@@ -93,10 +108,14 @@ Each command opens a fresh TCP connection, sends the message, reads the response
 Automation script for the final demo. Manages all process lifecycles and timing.
 
 **Timeline:**
-- `T=0s` — Wipes `torrents/`, writes config files, generates `small.dat` and `large.dat`, starts tracker, starts Peer1 (small.dat seeder) and Peer2 (large.dat seeder).
+- `T<0s` — Reads config file, setting up constants
+- `T=0s` — Wipes `torrents/`, wipes previous run folders, generates `small.dat` and `large.dat`, starts tracker, starts Peer1 (small.dat seeder) and Peer2 (large.dat seeder).
 - `T=30s` — Launches Peers 3–8 as leechers downloading both files.
 - `T=90s` — Terminates Peer1 and Peer2. Launches Peers 9–13 as leechers downloading both files (from wave 1 peers, since original seeders are gone).
 - `Ctrl+C` — Sends SIGINT to all processes in reverse launch order, waits up to 2 seconds each, kills any that don't respond.
+
+**Config files:**
+- `clientThreadConfig.cfg` — tracker port, tracker IP, updatetracker interval
 
 ---
 
@@ -146,48 +165,19 @@ The midterm submission demonstrated: multithreaded tracker server, manual `creat
 
 - **`torrents/` wipe on startup** — Prevents `createtracker ferr` on re-runs by deleting stale `.track` files before the tracker starts.
 - **`terminate()` print removed** — The `Peer1 terminated` print was duplicated (both the peer's own `KeyboardInterrupt` handler and the script printed it). Script-side print removed.
-- **`LARGE_SIZE_BYTES` reduced to 2MB** — Changed from 50MB during development for faster iteration. Needs to be increased before the actual demo (see below).
-
----
+- **`LARGE_SIZE_BYTES` reduced to 10MB** — Changed from 50MB during development for faster iteration.
+- **MULTIMACHINE setup** - Now works across machines
 
 ## What Is Left To Do
-
 ### Required before demo (April 27)
+---
 
-**1. Large file timing**
-The spec requires the large file to take at least 1 minute 20 seconds to download. At 2MB with `time.sleep(0.01)` per chunk, wave 1 completes in under 10 seconds. Two options:
-- Increase file size: ~80MB minimum at current sleep, or
-- Increase sleep: change `time.sleep(0.01)` to `time.sleep(0.05)` in `_download_worker` and use ~15MB
-
-Run a timing test before demo day and adjust both knobs until wave 1 finishes between 80–100 seconds.
-
-**2. Two-machine setup**
-For the actual demo, the tracker runs on one laptop and all peers run on another. Required changes to `final_demo.py`:
-- Add `TRACKER_IP = "<Machine T's LAN IP>"` to the config block at the top
-- In `create_demo_files()`, change the `clientThreadConfig.cfg` write to use `TRACKER_IP` instead of `127.0.0.1`
-- Remove the `tracker_server.py` subprocess launch from `main()` — the tracker is already running on Machine T
-- Update `wait_for_tracker()` to connect to `TRACKER_IP` instead of `127.0.0.1`
-
-Both machines must be on the same LAN (same Wi-Fi, no VPN).
-
-**3. Final report (due April 29, 11:59pm)**
+**1. Final report (due April 29, 11:59pm)**
 - Max 5 pages, 10pt font, PDF only
 - Must include: member names (alphabetical by last name), each member's role, citations for external code/libraries, code design, installation and running guide
-- Submit as a zip named `Lastname1_Lastname2_Lastname3.zip` containing all source files, Makefile, and the PDF report
+- Submit as a zip named `Lastname1_Lastname2_Lastname3_Lastname4.zip` containing all source files, Makefile, and the PDF report
 
 ### Recommended before demo
 
-**4. Makefile verification**
+**2. Makefile verification**
 Run `make tracker` and `make peer` on a clean Linux Ubuntu 64-bit machine to confirm everything compiles/runs cleanly. The spec requires a valid Makefile and submission must not include compiled object files.
-
-**5. Cleanup of leftover peer directories**
-After each test run, `final_demo.py` leaves behind `Peer3_downloads/`, `Peer3_cache/`, etc. in the working directory. Consider adding a cleanup step in `create_demo_files()`:
-
-```python
-import glob
-for d in glob.glob("Peer*_downloads") + glob.glob("Peer*_cache"):
-    shutil.rmtree(d, ignore_errors=True)
-```
-
-**6. Demo dry run on Linux**
-The demo platform is Linux Ubuntu 64-bit. Test at least once on Linux before April 27 — particularly `peer_lan_ip()` behavior and any macOS-specific path quirks.
