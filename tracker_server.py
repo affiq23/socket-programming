@@ -4,6 +4,7 @@ import os
 import socket
 import threading
 import time
+import shutil
 
 config = configparser.ConfigParser()
 config.read("sconfig.cfg")
@@ -12,6 +13,8 @@ PORT = int(config.get("server", "port", fallback="5000"))
 TORRENTS_DIR = config.get("server", "torrents_dir", fallback="torrents")
 PEER_TIMEOUT = int(config.get("server", "peer_timeout_seconds", fallback="900"))
 
+if os.path.exists(TORRENTS_DIR):
+    shutil.rmtree(TORRENTS_DIR)
 os.makedirs(TORRENTS_DIR, exist_ok=True)
 file_lock = threading.Lock()
 
