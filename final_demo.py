@@ -18,10 +18,15 @@ import sys
 import time
 from pathlib import Path
 
-# ------------------------------------------------------------------ #
-# Config
-# ------------------------------------------------------------------ #
-TRACKER_PORT    = 6000
+from tracker_client import load_client_thread_config
+try:
+    # reads the IP manually saved in clientThreadConfig.cfg
+    TRACKER_PORT, TRACKER_IP, _ = load_client_thread_config()
+except Exception:
+    print("ERROR: Could not load clientThreadConfig.cfg. Please make sure it exists.")
+    sys.exit(1)
+
+# config
 SEEDER1_PORT    = 9001   # Peer1 – small.dat
 SEEDER2_PORT    = 9002   # Peer2 – large.dat
 WAVE1_BASE_PORT = 9010   # Peers 3-8  (6 peers)
@@ -34,9 +39,7 @@ SMALL_SIZE_BYTES = 1024 * 5          # 5 KB
 LARGE_SIZE_BYTES = 1024 * 1024 * 10 # 10 MB
 
 
-# ------------------------------------------------------------------ #
-# Setup
-# ------------------------------------------------------------------ #
+# setup
 def create_demo_files():
     if Path("torrents").exists(): # wipe old tracker files if any
         shutil.rmtree("torrents")
@@ -45,8 +48,7 @@ def create_demo_files():
     Path("shared").mkdir(exist_ok=True)
 
     # 5-second refresh so Wave 1 leechers report back as seeders in time for Wave 2
-    with open("clientThreadConfig.cfg", "w") as f:
-        f.write(f"{TRACKER_PORT}\n192.168.1.201\n5\n") # server IP
+
     with open("serverThreadConfig.cfg", "w") as f:
         f.write("9000\nshared\n")
 
@@ -62,9 +64,7 @@ def create_demo_files():
         print(f"[*] {LARGE_FILE} ready.")
 
 
-# ------------------------------------------------------------------ #
-# Process helpers
-# ------------------------------------------------------------------ #
+# process helpers
 def launch_peer(peer_id: str, mode: str, files: str, port: int) -> subprocess.Popen:
     """
     files: comma-separated filenames, e.g. "small.dat,large.dat"
@@ -80,7 +80,7 @@ def launch_peer(peer_id: str, mode: str, files: str, port: int) -> subprocess.Po
     return subprocess.Popen(cmd, env=env)
 
 # server IP
-def wait_for_tracker(port: int, retries: int = 20, delay: float = 0.5, host="192.168.1.201"):
+def wait_for_tracker(port: int, retries: int = 20, delay: float = 0.5, host="127.0.0.1"):
     import socket
     for _ in range(retries):
         try:
@@ -101,9 +101,7 @@ def terminate(proc: subprocess.Popen, label: str):
     
 
 
-# ------------------------------------------------------------------ #
-# Main
-# ------------------------------------------------------------------ #
+# main
 def main():
     create_demo_files()
     active_processes: list[subprocess.Popen] = []
@@ -116,13 +114,14 @@ def main():
     print("  CS 4390 – P2P File Sharing Final Demo")
     print("=" * 55 + "\n")
 
-    # ---- T = 0s --------------------------------------------------- #
+    # t = 0s
     print(f"[T={elapsed():.0f}s] Starting Tracker Server on port {TRACKER_PORT}...")
-    print(f"[T={elapsed():.0f}s] Connecting to tracker at 192.168.1.201 {TRACKER_PORT}...") # server IP
     
-
-    if not wait_for_tracker(TRACKER_PORT, host="192.168.1.201"): # server IP
-        print("ERROR: tracker did not come up in time.")
+    #nNow dynamically printing and connecting to the configured IP
+    print(f"[T={elapsed():.0f}s] Connecting to tracker at {TRACKER_IP}:{TRACKER_PORT}...") 
+    
+    if not wait_for_tracker(TRACKER_PORT, host=TRACKER_IP): 
+        print(f"ERROR: tracker did not come up in time on {TRACKER_IP}:{TRACKER_PORT}")
         sys.exit(1)
     print(f"[T={elapsed():.0f}s] Tracker is up.")
 
@@ -136,7 +135,7 @@ def main():
     active_processes.append(p2)
     time.sleep(1)
 
-    # ---- T = 30s -------------------------------------------------- #
+   # t = 30
     remaining = 30 - elapsed()
     if remaining > 0:
         print(f"\n[*] Waiting {remaining:.0f}s before Wave 1...\n")
@@ -144,7 +143,7 @@ def main():
 
     print(f"[T={elapsed():.0f}s] Starting Peers 3-8 (6 leechers, downloading both files)...")
     wave1 = []
-    for i in range(6):                              # peers 3-8
+    for i in range(6):  # peers 3-8
         peer_id = f"Peer{3 + i}"
         port = WAVE1_BASE_PORT + i
         p = launch_peer(peer_id, "leecher", f"{SMALL_FILE},{LARGE_FILE}", port)
@@ -152,7 +151,7 @@ def main():
         wave1.append(p)
         print(f"  launched {peer_id} on port {port}")
 
-    # ---- T = 1m30s ------------------------------------------------ #
+    # t = 90s
     remaining = 90 - elapsed()
     if remaining > 0:
         print(f"\n[*] Waiting {remaining:.0f}s for Wave 1 to download + seed...\n")
@@ -170,7 +169,7 @@ def main():
         active_processes.append(p)
         print(f"  launched {peer_id} on port {port}")
 
-    # ---- Hold ----------------------------------------------------- #
+    # hold
     print(f"\n[T={elapsed():.0f}s] All stages triggered. Swarm is running.")
     print("Press Ctrl+C to shut everything down when done.\n")
 
