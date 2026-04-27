@@ -34,8 +34,7 @@ LARGE_SIZE_BYTES = 1024 * 1024 * 10     # 10 MB
 
 # Per-chunk sleep injected into leecher workers via CHUNK_SLEEP env var.
 # With 10MB (10240 chunks) and 10 parallel workers:
-#   Each worker sleeps 0.08s per chunk -> ~82s for the full file download.
-# Adjust this knob to meet the ">= 1 min 20 sec" requirement.
+#   Each worker sleeps 0.08s per chunk -> roguhly 82s for the full file download.
 CHUNK_SLEEP = 0.08
 
 
