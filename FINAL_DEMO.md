@@ -1,7 +1,7 @@
 # CS 4390 – P2P File Sharing Project Documentation
 
 ## Table of Contents
-1. [Instruction Guide] (#instruction-guide)
+1. [Instruction Guide](#instruction-guide)
 2. [Component Overview](#component-overview)
 3. [Major Changes Since Midterm](#major-changes-since-midterm)
 4. [What Is Left To Do](#what-is-left-to-do)
