@@ -46,7 +46,7 @@ def create_demo_files():
 
     # 5-second refresh so Wave 1 leechers report back as seeders in time for Wave 2
     with open("clientThreadConfig.cfg", "w") as f:
-        f.write(f"{TRACKER_PORT}\n127.0.0.1\n5\n")
+        f.write(f"{TRACKER_PORT}\n192.168.1.201\n5\n") # server IP
     with open("serverThreadConfig.cfg", "w") as f:
         f.write("9000\nshared\n")
 
@@ -79,12 +79,12 @@ def launch_peer(peer_id: str, mode: str, files: str, port: int) -> subprocess.Po
     ]
     return subprocess.Popen(cmd, env=env)
 
-
-def wait_for_tracker(port: int, retries: int = 20, delay: float = 0.5):
+# server IP
+def wait_for_tracker(port: int, retries: int = 20, delay: float = 0.5, host="192.168.1.201"):
     import socket
     for _ in range(retries):
         try:
-            s = socket.create_connection(("127.0.0.1", port), timeout=1)
+            s = socket.create_connection((host, port), timeout=1)
             s.close()
             return True
         except OSError:
@@ -118,10 +118,10 @@ def main():
 
     # ---- T = 0s --------------------------------------------------- #
     print(f"[T={elapsed():.0f}s] Starting Tracker Server on port {TRACKER_PORT}...")
-    tracker = subprocess.Popen([sys.executable, "tracker_server.py"])
-    active_processes.append(tracker)
+    print(f"[T={elapsed():.0f}s] Connecting to tracker at 192.168.1.201 {TRACKER_PORT}...") # server IP
+    
 
-    if not wait_for_tracker(TRACKER_PORT):
+    if not wait_for_tracker(TRACKER_PORT, host="192.168.1.201"): # server IP
         print("ERROR: tracker did not come up in time.")
         sys.exit(1)
     print(f"[T={elapsed():.0f}s] Tracker is up.")
