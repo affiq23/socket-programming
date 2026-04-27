@@ -1,5 +1,7 @@
+from __future__ import annotations
 import socket
 from pathlib import Path
+
 
 BUFFER_SIZE = 4096
 
