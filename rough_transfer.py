@@ -366,24 +366,28 @@ def _download_worker(
     completed: set[Tuple[int, int]],
     completed_lock: threading.Lock,
     bad_peers: set[Tuple[str, int]],
+    bad_peers_lock: threading.Lock,
     timeout: float,
     tracker_ip: str = "",
     tracker_port: int = 0,
     peer_listen_port: int = 0,
     peer_ip: str = "",
+    chunk_sleep: float = 0.0,
 ) -> None:
     peer_tup = (job.peer.ip, job.peer.port)
-    
-    # --- INSTANTLY SKIP DEAD PEERS SO IT DOES NOT HANG ---
-    if peer_tup in bad_peers:
-        results.append(DownloadResult(job.start, job.end, peer_tup, False, "blacklisted"))
-        return
 
-    
+    # --- INSTANTLY SKIP DEAD PEERS SO IT DOES NOT HANG (thread-safe) ---
+    with bad_peers_lock:
+        if peer_tup in bad_peers:
+            results.append(DownloadResult(job.start, job.end, peer_tup, False, "blacklisted"))
+            return
+
     out_path = Path(downloads_dir) / tracker.filename
     try:
         peer_id = os.environ.get("PEER_ID", "Peer")
-        print(f"{peer_id} downloading {job.start} to {job.end} bytes of "
+        # Spec format: "Peer5 downloading 1024 to 2048 bytes of movie1.avi from IP port"
+        # Spec uses exclusive end (start of next chunk), so we print job.end + 1
+        print(f"{peer_id} downloading {job.start} to {job.end + 1} bytes of "
               f"{tracker.filename} from {job.peer.ip} {job.peer.port}")
         payload = request_chunk_from_peer(
             peer_ip=job.peer.ip,
@@ -416,10 +420,15 @@ def _download_worker(
             except Exception:
                 pass
 
+        # Optional per-chunk sleep to control download rate (used to meet timing requirements)
+        if chunk_sleep > 0:
+            time.sleep(chunk_sleep)
+
         results.append(DownloadResult(job.start, job.end, peer_tup, True))
     except Exception as exc:
-        # INSTANTLY ADD TO BLACKLIST ON FIRST FAILURE
-        bad_peers.add(peer_tup)
+        # INSTANTLY ADD TO BLACKLIST ON FIRST FAILURE (thread-safe)
+        with bad_peers_lock:
+            bad_peers.add(peer_tup)
         results.append(DownloadResult(job.start, job.end, peer_tup, False, str(exc)))
 
 def download_file_from_tracker_info(
@@ -429,6 +438,7 @@ def download_file_from_tracker_info(
     tracker_ip: str = "",
     tracker_port: int = 0,
     peer_listen_port: int = 0,
+    chunk_sleep: float = 0.0,
 ) -> Tuple[Path, List[DownloadResult]]:
     downloads_dir = Path(downloads_dir)
     downloads_dir.mkdir(parents=True, exist_ok=True)
@@ -444,13 +454,15 @@ def download_file_from_tracker_info(
     all_results: List[DownloadResult] = []
     
     peer_ip = peer_lan_ip() if peer_listen_port else ""
-    bad_peers = set()
+    bad_peers: set = set()
+    bad_peers_lock = threading.Lock()
 
-    for _ in range(10): # Try up to 10 rounds of jobs
+    for _ in range(10):  # Try up to 10 rounds of jobs
         completed = load_completed_segments(downloads_dir, tracker.filename)
-        tracker.peers = [p for p in tracker.peers if (p.ip, p.port) not in bad_peers]
+        with bad_peers_lock:
+            tracker.peers = [p for p in tracker.peers if (p.ip, p.port) not in bad_peers]
         jobs = plan_chunk_jobs(tracker, completed)
-        
+
         if not jobs and len(completed) == len(build_all_segments(tracker.filesize)):
             break
         if not jobs:
@@ -462,9 +474,10 @@ def download_file_from_tracker_info(
             for job in jobs:
                 futures.append(
                     executor.submit(
-                        _download_worker, job, tracker, downloads_dir, file_lock, 
-                        results, completed, completed_lock, bad_peers, timeout,
-                        tracker_ip, tracker_port, peer_listen_port, peer_ip
+                        _download_worker, job, tracker, downloads_dir, file_lock,
+                        results, completed, completed_lock, bad_peers, bad_peers_lock,
+                        timeout, tracker_ip, tracker_port, peer_listen_port, peer_ip,
+                        chunk_sleep
                     )
                 )
             concurrent.futures.wait(futures)
@@ -508,6 +521,7 @@ def auto_download_from_tracker_server(
     downloads_dir: os.PathLike | str,
     timeout: float = DEFAULT_TIMEOUT,
     peer_listen_port: int = 0,
+    chunk_sleep: float = 0.0,
 ) -> Path:
     
     # --- AUTOMATIC RETRY IF TRACKER LIST IS STALE ---
@@ -523,12 +537,13 @@ def auto_download_from_tracker_server(
         
         try:
             final_path, _ = download_file_from_tracker_info(
-                tracker, 
-                downloads_dir=downloads_dir, 
+                tracker,
+                downloads_dir=downloads_dir,
                 timeout=timeout,
                 tracker_ip=tracker_ip,
                 tracker_port=tracker_port,
-                peer_listen_port=peer_listen_port
+                peer_listen_port=peer_listen_port,
+                chunk_sleep=chunk_sleep,
             )
             cached_track_path.unlink(missing_ok=True)
             return final_path
@@ -559,6 +574,8 @@ if __name__ == "__main__":
     s2.add_argument("--cache-dir", required=True)
     s2.add_argument("--downloads-dir", required=True)
     s2.add_argument("--peer-listen-port", type=int, default=0)
+    s2.add_argument("--chunk-sleep", type=float, default=0.0,
+                    help="Seconds to sleep after each chunk download (for timing control)")
 
     args = parser.parse_args()
 
@@ -572,4 +589,5 @@ if __name__ == "__main__":
             cache_dir=args.cache_dir,
             downloads_dir=args.downloads_dir,
             peer_listen_port=args.peer_listen_port,
+            chunk_sleep=args.chunk_sleep,
         )

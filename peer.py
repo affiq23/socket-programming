@@ -59,9 +59,13 @@ def _do_leecher_download(peer_id: str, track_ip: str, track_port: int,
         "--downloads-dir", str(downloads_dir),
         "--peer-listen-port", str(listen_port),
     ]
+    # Inherit CHUNK_SLEEP from environment if set (used by final_demo.py for timing)
+    chunk_sleep = os.environ.get("CHUNK_SLEEP", "0")
+    if float(chunk_sleep) > 0:
+        cmd += ["--chunk-sleep", chunk_sleep]
     try:
         subprocess.run(cmd, check=True)
-        print(f"{peer_id}: Download complete for {filename}")
+        print(f"{peer_id}: File {filename} download complete")
     except subprocess.CalledProcessError as e:
         print(f"{peer_id}: Download failed for {filename}: {e}")
         return False
@@ -175,7 +179,7 @@ def main() -> None:
 
         files = [f.strip() for f in args.file.split(",") if f.strip()]
 
-        for filename in files:
+        def _download_one(filename: str) -> None:
             # REQ LIST before each GET (per spec)
             print(f"{peer_id}: List")
             try:
@@ -184,8 +188,15 @@ def main() -> None:
             except Exception as e:
                 print(f"{peer_id}: LIST failed: {e}")
 
-            print(f"{peer_id}: Get {filename}.track")
+            print(f"{peer_id}: Get {filename}")
             _do_leecher_download(peer_id, track_ip, track_port, filename, shared.resolve(), listen_port)
+
+        # Download all files in parallel so large.dat seeders start advertising sooner
+        dl_threads = [threading.Thread(target=_download_one, args=(fn,), daemon=False) for fn in files]
+        for t in dl_threads:
+            t.start()
+        for t in dl_threads:
+            t.join()
 
         # Keep alive so the chunk server can serve what was downloaded
         print(f"{peer_id}: All downloads done. Staying alive to seed...")

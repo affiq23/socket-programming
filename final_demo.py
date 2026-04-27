@@ -29,17 +29,29 @@ WAVE2_BASE_PORT = 9020   # Peers 9-13 (5 peers)
 SMALL_FILE = "small.dat"
 LARGE_FILE = "large.dat"
 
-SMALL_SIZE_BYTES = 1024 * 5          # 5 KB
-LARGE_SIZE_BYTES = 1024 * 1024 * 10 # 10 MB
+SMALL_SIZE_BYTES = 1024 * 5              # 5 KB
+LARGE_SIZE_BYTES = 1024 * 1024 * 10     # 10 MB
+
+# Per-chunk sleep injected into leecher workers via CHUNK_SLEEP env var.
+# With 10MB (10240 chunks) and 10 parallel workers:
+#   Each worker sleeps 0.08s per chunk -> ~82s for the full file download.
+# Adjust this knob to meet the ">= 1 min 20 sec" requirement.
+CHUNK_SLEEP = 0.08
 
 
 # ------------------------------------------------------------------ #
 # Setup
 # ------------------------------------------------------------------ #
 def create_demo_files():
-    if Path("torrents").exists(): # wipe old tracker files if any
+    if Path("torrents").exists():  # wipe old tracker files if any
         shutil.rmtree("torrents")
     Path("torrents").mkdir()
+
+    # Clean up leftover peer directories from previous runs
+    import glob
+    for d in glob.glob("Peer*_downloads") + glob.glob("Peer*_cache"):
+        shutil.rmtree(d, ignore_errors=True)
+
     print("[*] Setting up demo environment...")
     Path("shared").mkdir(exist_ok=True)
 
@@ -70,6 +82,9 @@ def launch_peer(peer_id: str, mode: str, files: str, port: int) -> subprocess.Po
     """
     env = os.environ.copy()
     env["PEER_ID"] = peer_id
+    # Only inject sleep for leechers (seeders serve chunks, don't need delay)
+    if mode == "leecher":
+        env["CHUNK_SLEEP"] = str(CHUNK_SLEEP)
     cmd = [
         sys.executable, "peer.py",
         "--mode", mode,
