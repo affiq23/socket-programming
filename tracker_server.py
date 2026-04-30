@@ -6,6 +6,7 @@ import socket
 import threading
 import time
 
+# read server config from sconfig.cfg — port, torrents directory, peer timeout
 config = configparser.ConfigParser()
 config.read("sconfig.cfg")
 
@@ -14,6 +15,9 @@ TORRENTS_DIR = config.get("server", "torrents_dir", fallback="torrents")
 PEER_TIMEOUT = int(config.get("server", "peer_timeout_seconds", fallback="900"))
 
 os.makedirs(TORRENTS_DIR, exist_ok=True)
+
+# global lock for all .track file reads and writes — prevents race conditions
+# when multiple peers are sending updatetracker at the same time
 file_lock = threading.Lock()
 
 
@@ -22,11 +26,15 @@ def md5_of_string(data: str) -> str:
 
 
 def track_path(filename: str) -> str:
+    # strip .track extension if already present, then re-add it
+    # so both "movie.avi" and "movie.avi.track" map to the same file
     base = filename.replace(".track", "")
     return os.path.join(TORRENTS_DIR, base + ".track")
 
 
 def read_track_file(filepath: str):
+    # parse a .track file into a header dict and list of peer dicts
+    # returns (None, None) if the file doesn't exist
     if not os.path.exists(filepath):
         return None, None
 
@@ -38,6 +46,7 @@ def read_track_file(filepath: str):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
+            # peer entries start with a digit (ip address)
             if ":" in line and line[0].isdigit():
                 parts = line.split(":")
                 if len(parts) == 5:
@@ -63,6 +72,7 @@ def read_track_file(filepath: str):
 
 
 def write_track_file(filepath: str, header: dict, peers: list):
+    # write the full .track file — header fields first, then peer list
     with open(filepath, "w") as f:
         f.write(f"Filename: {header['Filename']}\n")
         f.write(f"Filesize: {header['Filesize']}\n")
@@ -74,11 +84,14 @@ def write_track_file(filepath: str, header: dict, peers: list):
 
 
 def purge_dead_peers(peers: list) -> list:
+    # remove any peer that hasn't sent an updatetracker within the timeout window
     now = int(time.time())
     return [p for p in peers if (now - p["timestamp"]) <= PEER_TIMEOUT]
 
 
 def handle_createtracker(parts: list) -> str:
+    # create a new .track file for a file being shared
+    # returns ferr if the tracker file already exists
     if len(parts) != 7:
         print("[createtracker] Bad argument count")
         return "<createtracker fail>\n"
@@ -97,6 +110,7 @@ def handle_createtracker(parts: list) -> str:
             "Description": description,
             "MD5": md5,
         }
+        # initial seeder covers the full file — start=0, end=filesize
         peer = {
             "ip": ip,
             "port": port,
@@ -111,6 +125,7 @@ def handle_createtracker(parts: list) -> str:
 
 
 def handle_updatetracker(parts: list) -> str:
+    # update an existing .track file with new byte range info for a peer
     if len(parts) != 6:
         print("[updatetracker] Bad argument count")
         return f"<updatetracker {parts[1] if len(parts) > 1 else '?'} fail>\n"
@@ -121,21 +136,21 @@ def handle_updatetracker(parts: list) -> str:
     with file_lock:
         header, peers = read_track_file(path)
         if header is None:
-            # Only print error if it's an actual error, not a successful update
-            # print(f"[updatetracker] Track file not found: {path}")
             return f"<updatetracker {filename} ferr>\n"
 
         peers = purge_dead_peers(peers)
         now = int(time.time())
 
-        # --- BUG 2 FIX: Merge overlapping/adjacent chunks instead of overwriting ---
+        # merge overlapping or adjacent byte ranges for this peer instead of overwriting
+        # a peer downloading chunk by chunk would otherwise have many separate entries
         intervals = []
         for p in peers:
             if p["ip"] == ip and p["port"] == port:
                 intervals.append([int(p["start"]), int(p["end"])])
-        
+
         intervals.append([int(start), int(end)])
-        
+
+        # sort by start byte, then merge anything that overlaps or touches
         intervals.sort(key=lambda x: x[0])
         merged_intervals = []
         for interval in intervals:
@@ -143,9 +158,10 @@ def handle_updatetracker(parts: list) -> str:
                 merged_intervals.append(interval)
             else:
                 merged_intervals[-1][1] = max(merged_intervals[-1][1], interval[1])
-        
+
+        # remove all old entries for this peer, replace with merged ranges
         peers = [p for p in peers if not (p["ip"] == ip and p["port"] == port)]
-        
+
         for mi in merged_intervals:
             peers.append({
                 "ip": ip,
@@ -157,12 +173,12 @@ def handle_updatetracker(parts: list) -> str:
 
         write_track_file(path, header, peers)
 
-    # --- Muted to prevent terminal spam ---
-    # print(f"[updatetracker] Updated {path} for {ip}:{port}")
+    # updatetracker prints are muted — with 11 peers sending every 5s it's too noisy
     return f"<updatetracker {filename} succ>\n"
 
 
 def handle_list() -> str:
+    # return a formatted list of all .track files on the server
     track_files = [f for f in os.listdir(TORRENTS_DIR) if f.endswith(".track")]
     count = len(track_files)
     response = f"<REP LIST {count}>\n"
@@ -182,6 +198,7 @@ def handle_list() -> str:
 
 
 def handle_get(parts: list) -> str:
+    # send the full contents of a .track file to the requesting peer
     if len(parts) != 2:
         print("[GET] Bad argument count")
         return "<GET invalid>\n"
@@ -192,8 +209,9 @@ def handle_get(parts: list) -> str:
     if not os.path.exists(path):
         print(f"[GET] Track file not found: {path}")
         return "<GET invalid>\n"
-    
-    with file_lock: 
+
+    # hold the lock while reading — prevents a partial read during a concurrent write
+    with file_lock:
         with open(path, "r") as f:
             content = f.read()
 
@@ -204,8 +222,7 @@ def handle_get(parts: list) -> str:
 
 
 def handle_client(conn, addr):
-    # --- Muted connection logs for less terminal spam ---
-    # print(f"[+] Connection from {addr}")
+    # handles one peer connection — reads one command, sends one response, closes
     try:
         data = b""
         while True:
@@ -217,17 +234,16 @@ def handle_client(conn, addr):
                 break
 
         raw = data.decode(errors="ignore").strip()
-        
-        # --- Add this check so we stop flooding the terminal! ---
+
+        # don't print updatetracker — it fires constantly and floods the terminal
         if not raw.startswith("<updatetracker"):
             print(f"[>] Received: {raw}")
 
         parts = []
-        # --- BUG 3 FIX: Strict check for the exact GET format requested by the spec ---
+        # spec GET format is: <GET filename.track > — with a trailing space before >
         if raw.startswith("<GET ") and raw.endswith(" >"):
             filename = raw[5:-2].strip()
             parts = ["get", filename]
-            
         elif raw.startswith("<") and raw.endswith(">"):
             inner_raw = raw[1:-1].strip()
             parts = inner_raw.split()
@@ -254,7 +270,7 @@ def handle_client(conn, addr):
             response = "<error unknown command>\n"
 
         conn.sendall(response.encode())
-        
+
         if not raw.startswith("<updatetracker"):
             print(f"[<] Sent response for '{cmd}'")
 
@@ -262,7 +278,6 @@ def handle_client(conn, addr):
         print(f"[!] Error handling {addr}: {e}")
     finally:
         conn.close()
-        # print(f"[-] Closed connection from {addr}")
 
 
 def main():
@@ -273,9 +288,10 @@ def main():
     print(f"[*] Tracker server listening on port {PORT}")
     print(f"[*] Storing .track files in: {os.path.abspath(TORRENTS_DIR)}")
 
-    try: 
+    try:
         while True:
             conn, addr = server.accept()
+            # each peer connection gets its own daemon thread so we don't block
             t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
             t.start()
     except KeyboardInterrupt:
@@ -285,4 +301,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

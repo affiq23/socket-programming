@@ -4,11 +4,12 @@ import socket
 import sys
 
 from rough_transfer import ProtocolError, parse_tracker_get_response
-
 from tracker_client import load_client_thread_config, recv_all
 
 
 def resolve_tracker_addr():
+    # allow passing tracker ip/port as cli args for standalone use
+    # falls back to reading from clientThreadConfig.cfg
     if len(sys.argv) >= 3:
         return sys.argv[1], int(sys.argv[2])
     t_port, t_ip, _ = load_client_thread_config()
@@ -22,12 +23,14 @@ def send_msg(sock, msg):
 
 
 def open_tracker(host, port):
+    # each command opens a fresh connection — tracker closes it after replying
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((host, port))
     return sock
 
 
 def cmd_createtracker(host, port, peer_id: str):
+    # prompt for all required fields and send createtracker to the tracker
     filename = input("  Filename      : ").strip()
     filesize = input("  File size     : ").strip()
     description = input("  Description   : ").strip()
@@ -42,6 +45,7 @@ def cmd_createtracker(host, port, peer_id: str):
         print(f"  -> sent: {msg}")
         reply = recv_all(sock).decode(errors="replace").strip()
         print(f"  <- {reply}")
+        # print the spec-required log line on success
         if peer_id and "succ" in reply:
             print(
                 f"{peer_id}: createtracker {filename} {filesize} {description} {md5} {ip} {port_in}"
@@ -71,6 +75,7 @@ def cmd_updatetracker(host, port, peer_id: str):
 
 
 def cmd_list(host, port, peer_id: str):
+    # send REQ LIST and print the formatted response
     sock = open_tracker(host, port)
     try:
         send_msg(sock, "<REQ LIST>")
@@ -91,6 +96,7 @@ def cmd_list(host, port, peer_id: str):
 
 
 def cmd_get(host, port, peer_id: str):
+    # fetch a .track file from the tracker and save it locally
     filename = input("  Track filename (e.g. myfile.track): ").strip()
     save_as = input("  Save received file as              : ").strip()
 
@@ -106,6 +112,7 @@ def cmd_get(host, port, peer_id: str):
             print(f"  <- {raw.decode(errors='replace').strip()}")
             print("  bad response")
             return
+        # parse_tracker_get_response also verifies the md5 checksum
         payload = parse_tracker_get_response(raw)
         with open(save_as, "wb") as f:
             f.write(payload)
@@ -119,6 +126,7 @@ def cmd_get(host, port, peer_id: str):
 
 
 def run_interactive_menu(host: str, port: int, peer_id: str = "") -> None:
+    # used by peer.py --mode interactive for manual TA testing of all commands
     print(f"\ntracker: {host}:{port} (new tcp connect per cmd)\n")
 
     MENU = """
