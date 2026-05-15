@@ -1,4 +1,4 @@
-# socket-programming (CS4390)
+# socket-programming
 
 tracker_server.py — tracker  
 client.py — menu to talk to tracker  
