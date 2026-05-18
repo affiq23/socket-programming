@@ -1,9 +1,12 @@
 """
 app.py — FastAPI web layer for the P2P file transfer engine.
-Drop this file into your SOCKET-PROGRAMMING directory alongside peer.py.
 
-Run: python -m uvicorn app:app --host 0.0.0.0 --port 8080
+make sure to open venv
+run: python -m uvicorn app:app --host 0.0.0.0 --port 8080
 Then open: http://localhost:8080
+
+need to figure out hosting on AWS EC2 so anyone can send/recieve, not just people on same NAT router
+also want to figure out easier setup than running command on terminal first
 """
 
 import asyncio
@@ -22,14 +25,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-# ── Import your existing engine modules ──────────────────────────────────────
+
 import tracker_client
 import rough_transfer
 
-# ── App setup ────────────────────────────────────────────────────────────────
 app = FastAPI(title="P2P Transfer")
 
-# ── Config (loaded once at startup) ──────────────────────────────────────────
+# config (loaded once at startup) 
 client_cfg = tracker_client.load_client_thread_config()   # (tracker_port, tracker_ip, update_interval)
 server_cfg = tracker_client.load_server_thread_config()   # (chunk_port, shared_dir)
 
@@ -44,7 +46,7 @@ MY_IP          = tracker_client.peer_lan_ip()
 os.makedirs(SHARED_DIR, exist_ok=True)
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
-# ── Progress tracking (shared across threads) ─────────────────────────────────
+# progress tracking (shared across threads) 
 # { filename: { "total": int, "done": int, "status": "downloading"|"done"|"error" } }
 _progress: dict[str, dict] = {}
 _progress_lock = threading.Lock()
@@ -59,10 +61,10 @@ def _update_progress(filename: str, done: int, total: int):
         }
 
 
-# ── Startup: launch chunk server + periodic updatetracker ────────────────────
+# startup: launch chunk server + periodic updatetracker
 @app.on_event("startup")
 def startup():
-    # Chunk server — serves file pieces to other peers
+    # chunk server — serves file pieces to other peers
     threading.Thread(
         target=rough_transfer.start_peer_chunk_server,
         args=(MY_IP, CHUNK_PORT, SHARED_DIR),
@@ -70,7 +72,7 @@ def startup():
     ).start()
     print(f"[P2P] Chunk server listening on {MY_IP}:{CHUNK_PORT}")
 
-    # Periodic updatetracker — keeps this peer visible on the tracker
+    # periodic updatetracker — keeps this peer visible on the tracker
     threading.Thread(target=_updatetracker_loop, daemon=True).start()
     print(f"[P2P] Tracker at {TRACKER_IP}:{TRACKER_PORT} | update every {UPDATE_INTERVAL}s")
 
@@ -93,7 +95,7 @@ def _updatetracker_loop():
                 pass
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+# routes
 
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -115,20 +117,20 @@ async def send_file(file: UploadFile = File(...)):
     """
     dest = os.path.join(SHARED_DIR, file.filename)
 
-    # Write upload to shared dir
+    # write upload to shared dir
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
     size = os.path.getsize(dest)
 
-    # Compute MD5
+    # compute MD5
     md5 = hashlib.md5()
     with open(dest, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             md5.update(chunk)
     md5_hex = md5.hexdigest()
 
-    # Register on tracker
+    # register on tracker
     msg = (
         f"createtracker {file.filename} {size} \"uploaded via web\" "
         f"{md5_hex} {MY_IP} {CHUNK_PORT} 0 {size - 1} {int(time.time())}"
@@ -190,7 +192,7 @@ def receive_file(req: ReceiveRequest):
                 my_port=CHUNK_PORT,
                 progress_callback=lambda done, total: _update_progress(fname, done, total),
             )
-            # Seed the file after download
+            # seed the file after download
             dest = os.path.join(SHARED_DIR, fname)
             src = os.path.join(DOWNLOADS_DIR, fname)
             if os.path.exists(src) and not os.path.exists(dest):
@@ -235,7 +237,7 @@ async def progress_stream(filename: str):
 
     return EventSourceResponse(_generate())
 
-# ── Dynamic Config Route ─────────────────────────────────────────────────────
+# dynamic config route
 
 class ConfigUpdate(BaseModel):
     tracker_ip: str
