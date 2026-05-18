@@ -1,4 +1,4 @@
-# CS 4390 – P2P File Sharing Project Documentation
+#P2P File Sharing Project Documentation
 
 ---
 
