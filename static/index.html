@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P2P Transfer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0a0c0f;
+    --surface:   #0f1318;
+    --border:    #1e2530;
+    --border2:   #2a3340;
+    --text:      #c8d4e0;
+    --muted:     #4a5568;
+    --accent:    #00d4aa;
+    --accent2:   #0088ff;
+    --warn:      #ff6b35;
+    --success:   #00d4aa;
+    --error:     #ff4444;
+    --mono:      'IBM Plex Mono', monospace;
+    --sans:      'IBM Plex Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,170,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,170,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo { display: flex; align-items: center; gap: 12px; }
+
+  .logo-icon {
+    width: 36px;
+    height: 36px;
+    border: 1.5px solid var(--accent);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+  }
+
+  .logo-text {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .logo-sub {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    margin-top: 2px;
+  }
+
+  .peer-info {
+    text-align: right;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+
+  .peer-info .ip {
+    color: var(--accent2);
+    font-weight: 500;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 6px;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tab {
+    padding: 10px 20px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+
+  .card-label {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  .dropzone {
+    border: 1.5px dashed var(--border2);
+    border-radius: 6px;
+    padding: 40px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(0,212,170,0.04);
+  }
+
+  .dropzone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .drop-icon {
+    font-size: 28px;
+    margin-bottom: 10px;
+    display: block;
+    opacity: 0.5;
+  }
+
+  .drop-text { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .drop-text span { color: var(--accent); }
+
+  .file-preview {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(0,212,170,0.06);
+    border: 1px solid rgba(0,212,170,0.2);
+    border-radius: 6px;
+    margin-top: 12px;
+  }
+  .file-preview.show { display: flex; }
+  .file-name { font-size: 12px; color: var(--accent); flex: 1; }
+  .file-size { font-size: 11px; color: var(--muted); }
+
+  .btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 10px 20px;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    font-weight: 600;
+    width: 100%;
+    justify-content: center;
+    margin-top: 16px;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #00f0c0;
+    transform: translateY(-1px);
+  }
+  .btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--accent2);
+    border: 1px solid var(--accent2);
+    width: 100%;
+    justify-content: center;
+    margin-top: 12px;
+  }
+  .btn-secondary:hover { background: rgba(0,136,255,0.08); }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .input-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  input[type="text"] {
+    background: #080b0e;
+    border: 1px solid var(--border2);
+    border-radius: 5px;
+    padding: 9px 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    width: 100%;
+    transition: border-color 0.15s;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--accent2); }
+  input[type="text"]::placeholder { color: var(--muted); }
+
+  .file-list { display: flex; flex-direction: column; gap: 8px; }
+  .file-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: #080b0e;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    gap: 12px;
+  }
+  .file-entry:hover {
+    border-color: var(--accent2);
+    background: rgba(0,136,255,0.05);
+  }
+  .file-entry.selected {
+    border-color: var(--accent2);
+    background: rgba(0,136,255,0.08);
+  }
+  .fe-name { font-size: 13px; color: var(--text); flex: 1; }
+  .fe-size { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .fe-md5  { font-size: 10px; color: var(--muted); white-space: nowrap; font-family: var(--mono); }
+
+  .progress-wrap { display: none; margin-top: 16px; }
+  .progress-wrap.show { display: block; }
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .progress-filename { color: var(--text); }
+  .progress-pct { color: var(--accent); font-weight: 500; }
+  .progress-bar-bg {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 2px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+
+  .result-box {
+    display: none;
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .result-box.show { display: block; }
+  .result-box.success {
+    background: rgba(0,212,170,0.07);
+    border: 1px solid rgba(0,212,170,0.25);
+    color: var(--text);
+  }
+  .result-box.error {
+    background: rgba(255,68,68,0.07);
+    border: 1px solid rgba(255,68,68,0.25);
+    color: #ff8888;
+  }
+  .result-key { color: var(--muted); }
+  .result-val { color: var(--accent); }
+  .result-row { display: flex; gap: 8px; }
+
+  .log {
+    background: #060809;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    font-size: 11px;
+    line-height: 1.8;
+    color: var(--muted);
+    max-height: 160px;
+    overflow-y: auto;
+    margin-top: 16px;
+  }
+  .log .log-ok   { color: var(--accent); }
+  .log .log-err  { color: var(--error); }
+  .log .log-info { color: var(--accent2); }
+
+  .empty {
+    text-align: center;
+    padding: 32px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .panel.active .card { animation: fadeUp 0.25s ease forwards; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid rgba(255,255,255,0.2);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon">⟁</div>
+      <div>
+        <div class="logo-text">P2P Transfer</div>
+        <div class="logo-sub">Chunked TCP · Tracker-based</div>
+      </div>
+    </div>
+    <div class="peer-info" id="peerInfo">
+      <div><span class="status-dot"></span>peer online</div>
+      <div>ip: <span class="ip" id="myIp">—</span></div>
+      <div>chunk port: <span class="ip" id="myPort">—</span></div>
+      <div>tracker: <span class="ip" id="trackerIp">—</span></div>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="send">Send</button>
+    <button class="tab" data-tab="receive">Receive</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </div>
+
+  <div class="panel active" id="panel-send">
+    <div class="card">
+      <div class="card-label">Select file to share</div>
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput">
+        <span class="drop-icon">⬆</span>
+        <div class="drop-text">
+          Drop a file here or <span>click to browse</span>
+        </div>
+      </div>
+      <div class="file-preview" id="filePreview">
+        <span>📄</span>
+        <span class="file-name" id="previewName">—</span>
+        <span class="file-size" id="previewSize">—</span>
+      </div>
+      <button class="btn btn-primary" id="sendBtn" disabled>
+        Register &amp; Start Seeding
+      </button>
+    </div>
+    <div class="result-box" id="sendResult"></div>
+    <div class="log" id="sendLog">
+      <span class="log-info">// waiting for file selection...</span>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-receive">
+    <div class="card">
+      <div class="card-label">Available files on tracker</div>
+      <div class="file-list" id="fileList">
+        <div class="empty">Click "Refresh" to fetch available files from the tracker.</div>
+      </div>
+      <button class="btn btn-secondary" id="refreshBtn">↻ &nbsp;Refresh file list</button>
+    </div>
+
+    <div class="card" id="downloadCard" style="display:none">
+      <div class="card-label">Download</div>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:14px">
+        Selected: <span style="color:var(--text)" id="selectedFileName">—</span>
+      </div>
+      <div class="progress-wrap" id="dlProgress">
+        <div class="progress-header">
+          <span class="progress-filename" id="dlFilename">—</span>
+          <span class="progress-pct" id="dlPct">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="dlBar"></div>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="downloadBtn">↓ &nbsp;Download</button>
+    </div>
+    <div class="log" id="receiveLog">
+      <span class="log-info">// waiting for action...</span>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-settings">
+    <div class="card">
+      <div class="card-label">Network Configuration</div>
+      <div class="input-group">
+        <label class="input-label">Tracker IP</label>
+        <input type="text" id="newTrackerIp" placeholder="e.g. 192.168.1.217">
+      </div>
+      <button class="btn btn-primary" id="saveConfigBtn">
+        Save Configuration
+      </button>
+      <div style="margin-top:16px; font-size:11px; color:var(--warn); border-top: 1px solid var(--border); padding-top: 12px;">
+        <strong>Note:</strong> Saving this configuration modifies your local <code>clientThreadConfig.cfg</code> file. Because connections are established on startup, you must <strong>stop your server (Ctrl+C) and restart it</strong> in your terminal for the new Tracker IP to take effect.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+
+// state
+let selectedFile = null;
+let selectedTrackFile = null;
+let sseSource = null;
+
+// init: fetch peer info 
+async function loadPeerInfo() {
+  try {
+    const r = await fetch('/api/info');
+    const d = await r.json();
+    document.getElementById('myIp').textContent    = d.ip;
+    document.getElementById('myPort').textContent  = d.chunk_port;
+    document.getElementById('trackerIp').textContent = d.tracker_ip;
+    
+    // Pre-fill the settings input with current IP
+    document.getElementById('newTrackerIp').value = d.tracker_ip;
+  } catch(e) {
+    logSend('err', 'Could not reach backend: ' + e.message);
+  }
+}
+
+// tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// SETTINGS: Save Configuration
+document.getElementById('saveConfigBtn').addEventListener('click', async () => {
+  const newIp = document.getElementById('newTrackerIp').value;
+  const btn = document.getElementById('saveConfigBtn');
+  
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Saving…';
+  
+  try {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracker_ip: newIp })
+    });
+    
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Failed to save config');
+    
+    alert("Configuration saved! Please return to your terminal, press Ctrl+C to stop the server, and restart it to connect to the new Tracker IP.");
+    btn.innerHTML = '✓ Saved Successfully';
+    
+    // reset button text after a few seconds
+    setTimeout(() => {
+        btn.innerHTML = 'Save Configuration';
+        btn.disabled = false;
+    }, 3000);
+    
+  } catch(e) {
+    alert("Error saving configuration: " + e.message);
+    btn.innerHTML = 'Save Configuration';
+    btn.disabled = false;
+  }
+});
+
+// SEND: file selection
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) selectFile(fileInput.files[0]); });
+
+function selectFile(f) {
+  selectedFile = f;
+  document.getElementById('previewName').textContent = f.name;
+  document.getElementById('previewSize').textContent = formatBytes(f.size);
+  document.getElementById('filePreview').classList.add('show');
+  document.getElementById('sendBtn').disabled = false;
+  logSend('info', `Selected: ${f.name} (${formatBytes(f.size)})`);
+}
+
+// SEND: upload 
+document.getElementById('sendBtn').addEventListener('click', async () => {
+  if (!selectedFile) return;
+
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Registering…';
+
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+
+  try {
+    const r = await fetch('/api/send', { method: 'POST', body: fd });
+    const d = await r.json();
+
+    if (!r.ok) throw new Error(d.detail || 'Upload failed');
+
+    logSend('ok', `Registered on tracker ✓`);
+    logSend('ok', `MD5: ${d.md5}`);
+    logSend('info', `Your IP: ${d.your_ip}:${d.chunk_port}`);
+
+    showSendResult('success', d);
+    btn.innerHTML = '✓ Seeding';
+  } catch (e) {
+    logSend('err', 'Error: ' + e.message);
+    showSendResult('error', { message: e.message });
+    btn.disabled = false;
+    btn.innerHTML = 'Register &amp; Start Seeding';
+  }
+});
+
+function showSendResult(type, d) {
+  const box = document.getElementById('sendResult');
+  box.className = 'result-box show ' + type;
+  if (type === 'success') {
+    box.innerHTML = `
+      <div class="result-row"><span class="result-key">file&nbsp;&nbsp;&nbsp;</span><span class="result-val">${d.filename}</span></div>
+      <div class="result-row"><span class="result-key">size&nbsp;&nbsp;&nbsp;</span><span class="result-val">${formatBytes(d.size)}</span></div>
+      <div class="result-row"><span class="result-key">md5&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="result-val">${d.md5}</span></div>
+      <div class="result-row"><span class="result-key">peer&nbsp;&nbsp;&nbsp;</span><span class="result-val">${d.your_ip}:${d.chunk_port}</span></div>
+      <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+        Share your IP and the tracker address with the receiver. They can now fetch this file.
+      </div>
+    `;
+  } else {
+    box.innerHTML = `<span style="color:var(--error)">✖ ${d.message}</span>`;
+  }
+}
+
+// RECEIVE: list files 
+document.getElementById('refreshBtn').addEventListener('click', loadFileList);
+
+async function loadFileList() {
+  const btn = document.getElementById('refreshBtn');
+  btn.innerHTML = '<span class="spinner"></span>';
+  btn.disabled = true;
+
+  try {
+    const r = await fetch('/api/files');
+    const d = await r.json();
+    renderFileList(d.raw);
+    logReceive('info', `Fetched file list from ${d.tracker_ip}`);
+  } catch(e) {
+    logReceive('err', 'Could not reach tracker: ' + e.message);
+    document.getElementById('fileList').innerHTML =
+      `<div class="empty">Tracker unreachable. Check your connection.</div>`;
+  } finally {
+    btn.innerHTML = '↻ &nbsp;Refresh file list';
+    btn.disabled = false;
+  }
+}
+
+function renderFileList(raw) {
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  const entries = [];
+
+  for (const line of lines) {
+    if (line.startsWith('>>') || line.toLowerCase().includes('list') || line.includes('===')) continue;
+    const parts = line.split(/\s+\|\s+|\s{2,}/);
+    if (parts.length >= 1 && parts[0].includes('.')) {
+      entries.push({
+        name: parts[0].trim(),
+        size: parts[1] ? parts[1].trim() : '—',
+        md5:  parts[2] ? parts[2].trim().substring(0, 10) + '…' : '—',
+      });
+    }
+  }
+
+  const container = document.getElementById('fileList');
+  if (entries.length === 0) {
+    container.innerHTML = `<div class="empty">No files on tracker yet.<br>Have the sender register a file first.</div>`;
+    return;
+  }
+
+  container.innerHTML = entries.map(e => `
+    <div class="file-entry" data-name="${e.name}" onclick="selectTrackFile('${e.name}', this)">
+      <span class="fe-name">${e.name}</span>
+      <span class="fe-size">${formatBytes(parseInt(e.size)) || e.size}</span>
+      <span class="fe-md5">${e.md5}</span>
+    </div>
+  `).join('');
+}
+
+function selectTrackFile(name, el) {
+  document.querySelectorAll('.file-entry').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedTrackFile = name;
+  document.getElementById('selectedFileName').textContent = name;
+  document.getElementById('downloadCard').style.display = 'block';
+  document.getElementById('downloadBtn').disabled = false;
+  document.getElementById('downloadBtn').innerHTML = '↓ &nbsp;Download';
+  document.getElementById('dlProgress').classList.remove('show');
+  logReceive('info', `Selected: ${name}`);
+}
+
+// RECEIVE: download 
+document.getElementById('downloadBtn').addEventListener('click', async () => {
+  if (!selectedTrackFile) return;
+
+  const btn = document.getElementById('downloadBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Starting…';
+
+  try {
+    const r = await fetch('/api/receive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: selectedTrackFile }),
+    });
+    const d = await r.json();
+
+    if (!r.ok) throw new Error(d.detail || 'Failed to start download');
+
+    logReceive('info', `Download started: ${selectedTrackFile}`);
+    startProgressStream(selectedTrackFile);
+  } catch(e) {
+    logReceive('err', 'Error: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = '↓ &nbsp;Download';
+  }
+});
+
+function startProgressStream(filename) {
+  if (sseSource) sseSource.close();
+
+  const progressWrap = document.getElementById('dlProgress');
+  const bar = document.getElementById('dlBar');
+  const pct = document.getElementById('dlPct');
+  const fname = document.getElementById('dlFilename');
+
+  progressWrap.classList.add('show');
+  fname.textContent = filename;
+
+  sseSource = new EventSource(`/api/progress-stream/${encodeURIComponent(filename)}`);
+
+  sseSource.onmessage = e => {
+    try {
+      const data = JSON.parse(e.data);
+      const p = data.percent || 0;
+      bar.style.width = p + '%';
+      pct.textContent = p + '%';
+
+      if (data.status === 'done') {
+        logReceive('ok', `✓ Download complete: ${filename}`);
+        document.getElementById('downloadBtn').innerHTML = '✓ Downloaded';
+        sseSource.close();
+      } else if (data.status === 'error') {
+        logReceive('err', `Download failed: ${filename}`);
+        document.getElementById('downloadBtn').disabled = false;
+        document.getElementById('downloadBtn').innerHTML = '↓ &nbsp;Retry';
+        sseSource.close();
+      }
+    } catch {}
+  };
+
+  sseSource.onerror = () => {
+    logReceive('err', 'Progress stream disconnected');
+    sseSource.close();
+  };
+}
+
+// logging
+function logSend(type, msg) {
+  const log = document.getElementById('sendLog');
+  const ts = new Date().toLocaleTimeString('en', { hour12: false });
+  log.innerHTML += `<div class="log-${type}">[${ts}] ${msg}</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+function logReceive(type, msg) {
+  const log = document.getElementById('receiveLog');
+  const ts = new Date().toLocaleTimeString('en', { hour12: false });
+  log.innerHTML += `<div class="log-${type}">[${ts}] ${msg}</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+// helpers
+function formatBytes(n) {
+  if (!n || isNaN(n)) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+// boot up
+loadPeerInfo();
+</script>
+</body>
+</html>
